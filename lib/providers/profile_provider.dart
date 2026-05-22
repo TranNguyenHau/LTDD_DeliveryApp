@@ -72,13 +72,24 @@ class ProfileProvider with ChangeNotifier {
   }) async {
     final ref = _db.collection(FirestoreCollections.users).doc(userId);
     final doc = await ref.get();
+    
     if (!doc.exists) {
+      // Create new profile
       final profile = UserProfile.initial(
         id: userId,
         email: email ?? '',
         fullName: fullName ?? '',
       );
       await ref.set(profile.toMap());
+    } else if (fullName != null && fullName.isNotEmpty) {
+      // Doc exists but fullName might be empty (just registered)
+      final existingFullName = doc.data()?['fullName'] as String? ?? '';
+      if (existingFullName.isEmpty) {
+        await ref.update({
+          'fullName': fullName.trim(),
+          'updatedAt': DateTime.now().toIso8601String(),
+        });
+      }
     }
   }
 

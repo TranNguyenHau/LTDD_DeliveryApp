@@ -13,15 +13,12 @@ class AuthService {
   User? get currentUser => _auth.currentUser;
 
   /// Đăng nhập: dùng Firebase Auth, sau đó đọc doc Firestore.
-  /// Nếu doc chưa tồn tại → tự tạo (fix trường hợp seed cũ bị lệch UID).
   Future<Account> signIn({
-    required String username,
+    required String email,
     required String password,
   }) async {
-    final email = '${username.trim().toLowerCase()}@foodapp.local';
-
     final cred = await _auth.signInWithEmailAndPassword(
-      email: email,
+      email: email.trim(),
       password: password,
     );
 
@@ -32,12 +29,12 @@ class AuthService {
 
     // Nếu chưa có doc → tự tạo dựa trên thông tin Auth
     if (account == null) {
-      // Xác định role: admin nếu username là 'admin'
-      final role = username.trim().toLowerCase() == 'admin' ? 'admin' : 'customer';
+      // Xác định role: admin nếu email chứa 'admin'
+      final role = email.trim().toLowerCase().contains('admin') ? 'admin' : 'customer';
       account = Account(
         id: uid,
-        username: username.trim().toLowerCase(),
-        email: email,
+        username: email.split('@')[0],
+        email: email.trim(),
         role: role,
       );
       await _db
@@ -49,51 +46,38 @@ class AuthService {
     return account;
   }
 
-  /// Đăng ký: tạo user Auth + document accounts
+  /// Đăng ký: tạo user Auth + document accounts + profile sơ khởi
   Future<Account> register({
-    required String username,
+    required String email,
     required String password,
   }) async {
-    final email = '${username.trim().toLowerCase()}@foodapp.local';
-
-    // Kiểm tra username trùng
-    final existing = await _db
-        .collection(FirestoreCollections.accounts)
-        .where('username', isEqualTo: username.trim().toLowerCase())
-        .limit(1)
-        .get();
-    if (existing.docs.isNotEmpty) {
-      throw FirebaseAuthException(
-        code: 'username-already-in-use',
-        message: 'Username đã tồn tại.',
-      );
-    }
-
     final cred = await _auth.createUserWithEmailAndPassword(
-      email: email,
+      email: email.trim(),
       password: password,
     );
 
+    final uid = cred.user!.uid;
+
     final account = Account(
-      id: cred.user!.uid,
-      username: username.trim().toLowerCase(),
-      email: email,
+      id: uid,
+      username: email.split('@')[0],
+      email: email.trim(),
       role: 'customer',
     );
 
     await _db
         .collection(FirestoreCollections.accounts)
-        .doc(cred.user!.uid)
+        .doc(uid)
         .set(account.toMap());
 
     final profile = UserProfile.initial(
-      id: cred.user!.uid,
-      email: email,
-      fullName: username.trim(),
+      id: uid,
+      email: email.trim(),
+      fullName: '', // Sẽ cập nhật ở bước sau trong UI đăng ký
     );
     await _db
         .collection(FirestoreCollections.users)
-        .doc(cred.user!.uid)
+        .doc(uid)
         .set(profile.toMap());
 
     return account;

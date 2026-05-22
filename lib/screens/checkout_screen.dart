@@ -12,6 +12,7 @@ import '../providers/coupon_provider.dart';
 import '../providers/order_provider.dart';
 import '../providers/profile_provider.dart';
 import '../widgets/coupon_card.dart';
+import '../models/user_profile.dart';
 import 'order_success_screen.dart';
 
 // ─── Address option types ─────────────────────────────────
@@ -96,6 +97,17 @@ class _CheckoutScreenState extends State<CheckoutScreen>
     final profileProvider = context.read<ProfileProvider>();
     final couponProvider = context.read<CouponProvider>();
     final orderProvider = context.read<OrderProvider>();
+
+    // Validate phone
+    final profile = profileProvider.profile;
+    if (profile?.phone == null || profile!.phone.isEmpty) {
+      _showSnackWithMessenger(
+        messenger,
+        'Vui lòng cập nhật số điện thoại trước khi đặt hàng',
+        isError: true,
+      );
+      return;
+    }
 
     // Validate địa chỉ
     final address = _getDeliveryAddress(context);
@@ -217,6 +229,10 @@ class _CheckoutScreenState extends State<CheckoutScreen>
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
+              // ── 0. Thông tin người đặt ─────────────────
+              _buildUserInfoSection(profile),
+              const SizedBox(height: 12),
+
               // ── 1. Địa chỉ giao hàng ──────────────────────
               _buildAddressSection(profileAddress),
               const SizedBox(height: 12),
@@ -249,6 +265,70 @@ class _CheckoutScreenState extends State<CheckoutScreen>
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // ─── User Info section ────────────────────────────────────
+  Widget _buildUserInfoSection(UserProfile? profile) {
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: _orange.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.person_pin_outlined, size: 18, color: _orange),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'Thông tin người đặt',
+                style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: _textDark),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              const Icon(Icons.person_outline, size: 18, color: _textMuted),
+              const SizedBox(width: 12),
+              Text(
+                profile?.fullName ?? 'Chưa cập nhật',
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: _textDark,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(Icons.phone_outlined, size: 18, color: _textMuted),
+              const SizedBox(width: 12),
+              if (profile?.phone != null && profile!.phone.isNotEmpty)
+                Text(
+                  profile!.phone,
+                  style: const TextStyle(fontSize: 14, color: _textDark, fontWeight: FontWeight.w500),
+                )
+              else
+                const Text(
+                  '⚠ Vui lòng cập nhật số điện thoại trong Hồ sơ',
+                  style: TextStyle(fontSize: 13, color: _orange, fontWeight: FontWeight.w600),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }

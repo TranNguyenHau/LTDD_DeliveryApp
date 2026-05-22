@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import '../constants/firestore_collections.dart';
 import '../models/order.dart';
 import '../models/cart_item.dart';
+import 'notification_provider.dart';
 
 /// Bộ lọc trạng thái trên màn Đơn hàng
 enum OrderFilter {
@@ -52,7 +53,7 @@ class OrderProvider with ChangeNotifier {
   /// Tổng tiền đã chi tiêu (đơn đã giao thành công)
   double get totalSpent =>
       _orders.where((o) => o.status == OrderStatus.completed)
-      .fold(0.0, (sum, o) => sum + o.totalAmount);
+      .fold(0.0, (previousValue, o) => previousValue + o.totalAmount);
 
   /// Lọc đơn hiện tại theo tab trạng thái
   List<Order> filteredActiveOrders(OrderFilter filter) {
@@ -154,6 +155,13 @@ class OrderProvider with ChangeNotifier {
           
           if (couponSnap.exists) {
             final couponData = couponSnap.data() as Map<String, dynamic>?;
+            
+            // Check if coupon is still active (Race condition check)
+            final isActive = couponData?['isActive'] ?? false;
+            if (!isActive) {
+              throw Exception('Mã giảm giá không còn hiệu lực');
+            }
+
             final perUserLimit = (couponData?['perUserLimit'] as num?)?.toInt() ?? 0;
             if (perUserLimit > 0 && currentUserId != null) {
               final userUsageRef = _db
@@ -242,65 +250,115 @@ class OrderProvider with ChangeNotifier {
     });
   }
 
+  /// Cập nhật trạng thái đơn hàng (Admin) và gửi thông báo cho khách
+  Future<String?> updateOrderStatus(String orderId, OrderStatus nextStatus) async {
+    try {
+      final orderRef = _db.collection(FirestoreCollections.orders).doc(orderId);
+      final orderSnap = await orderRef.get();
+      if (!orderSnap.exists) return 'Không tìm thấy đơn hàng';
+
+      final userId = orderSnap.data()?['userId'] as String?;
+      if (userId == null) return 'Không tìm thấy thông tin khách hàng';
+
+      await orderRef.update({'status': nextStatus.name});
+
+      // Gửi thông báo dựa trên trạng thái mới
+      String? title;
+      String? body;
+
+      switch (nextStatus) {
+        case OrderStatus.confirmed:
+          title = 'Đơn hàng đã được xác nhận ✅';
+          body = 'Đơn hàng của bạn đang được chuẩn bị 🍳';
+          break;
+        case OrderStatus.delivering:
+          title = 'Đơn hàng đang được giao 🛵';
+          body = 'Tài xế đang trên đường đến bạn!';
+          break;
+        case OrderStatus.completed:
+          title = 'Đơn hàng đã giao thành công 🎉';
+          body = 'Cảm ơn bạn! Hãy đánh giá món ăn nhé ⭐';
+          break;
+        case OrderStatus.cancelled:
+          title = 'Đơn hàng đã bị huỷ ❌';
+          body = 'Đơn hàng của bạn đã bị huỷ';
+          break;
+        default:
+          break;
+      }
+
+      if (title != null && body != null) {
+        await NotificationProvider.createNotification(
+          userId: userId,
+          type: 'order_status',
+          title: title,
+          body: body,
+          orderId: orderId,
+        );
+      }
+
+      return null;
+    } catch (e) {
+      return 'Lỗi cập nhật: $e';
+    }
+  }
+
   /// Hủy đơn hàng (chỉ khi đang ở trạng thái pending)
   Future<bool> cancelOrder(String orderId, String reason) async {
     try {
-      final orderRef = _db.collection(FirestoreCollections.orders).doc(orderId);
-      
+      final orderRef = _db
+          .collection(FirestoreCollections.orders)
+          .doc(orderId);
+
+      final orderSnapBefore = await orderRef.get();
+      final userId = orderSnapBefore.data()?['userId'] as String?;
+
       final result = await _db.runTransaction((transaction) async {
-        // ─── ALL READS FIRST ───────────────────────
-        // 1. Read Order
         final orderSnap = await transaction.get(orderRef);
         if (!orderSnap.exists) return false;
-
         final data = orderSnap.data()!;
         final currentStatus = data['status'] as String;
         final couponCode = data['couponCode'] as String?;
-
-        // 2. Read Coupon (if exists)
-        DocumentSnapshot? couponSnap;
-        if (couponCode != null && couponCode.isNotEmpty) {
-          final couponRef = _db.collection(FirestoreCollections.coupons).doc(couponCode);
-          couponSnap = await transaction.get(couponRef);
-        }
-
-        // ─── CHECK CONDITIONS ───────────────────────
-        // Chỉ cho phép hủy khi đơn ở trạng thái chờ xác nhận
-        if (currentStatus != OrderStatus.pending.name) {
-          return false;
-        }
-
-        // ─── ALL WRITES AFTER ───────────────────────
-        // 1. Cập nhật trạng thái đơn hàng
+        if (currentStatus != OrderStatus.pending.name) return false;
         transaction.update(orderRef, {
           'status': OrderStatus.cancelled.name,
           'cancelledAt': Timestamp.now(),
           'cancelReason': reason,
         });
-
-        // 2. Hoàn lại lượt dùng mã giảm giá nếu có
-        if (couponSnap != null && couponSnap.exists) {
-          final couponRef = _db.collection(FirestoreCollections.coupons).doc(couponCode);
-          final couponData = couponSnap.data() as Map<String, dynamic>?;
-          final currentUsed = (couponData?['usedCount'] ?? 0) as int;
-          if (currentUsed > 0) {
-            transaction.update(couponRef, {'usedCount': currentUsed - 1});
-          }
-
-          // 3. Hoàn lại per-user usage record if perUserLimit > 0
-          final perUserLimit = (couponData?['perUserLimit'] as num?)?.toInt() ?? 0;
-          final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-          if (perUserLimit > 0 && currentUserId != null) {
-            final userUsageRef = _db
-                .collection(FirestoreCollections.coupons)
-                .doc(couponCode)
-                .collection('usedBy')
-                .doc(currentUserId);
-            transaction.delete(userUsageRef);
+        if (couponCode != null && couponCode.isNotEmpty) {
+          final couponRef = _db
+              .collection(FirestoreCollections.coupons)
+              .doc(couponCode);
+          final couponSnap = await transaction.get(couponRef);
+          if (couponSnap.exists) {
+            final couponData = couponSnap.data() as Map<String, dynamic>?;
+            final currentUsed = (couponData?['usedCount'] ?? 0) as int;
+            if (currentUsed > 0) {
+              transaction.update(couponRef, {'usedCount': currentUsed - 1});
+            }
+            final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+            if (currentUserId != null) {
+              final userUsageRef = _db
+                  .collection(FirestoreCollections.coupons)
+                  .doc(couponCode)
+                  .collection('usedBy')
+                  .doc(currentUserId);
+              transaction.delete(userUsageRef);
+            }
           }
         }
         return true;
       });
+
+      if (result && userId != null) {
+        await NotificationProvider.createNotification(
+          userId: userId,
+          type: 'order_status',
+          title: 'Đơn hàng đã bị huỷ ❌',
+          body: 'Đơn hàng của bạn đã bị huỷ',
+          orderId: orderId,
+        );
+      }
       return result;
     } catch (e) {
       debugPrint('Lỗi hủy đơn hàng: $e');

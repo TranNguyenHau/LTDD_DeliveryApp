@@ -374,6 +374,37 @@ class _CompactReviewTile extends StatelessWidget {
             DateFormat('dd/MM/yyyy').format(review.createdAt),
             style: TextStyle(color: Colors.grey[500], fontSize: 10),
           ),
+          if (review.adminReply != null && review.adminReply!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF3E0),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFFFE0B2)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.storefront_outlined,
+                          size: 12, color: Color(0xFFFF6B00)),
+                      SizedBox(width: 4),
+                      Text("Phản hồi từ nhà hàng",
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFFFF6B00))),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(review.adminReply!,
+                      style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

@@ -29,7 +29,7 @@ class _LoginScreenState extends State<LoginScreen>
   static const _border = Color(0xFF4A2800);
 
   final _formKey = GlobalKey<FormState>();
-  final _usernameCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
 
   bool _hidePassword = true;
@@ -57,7 +57,7 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   void dispose() {
     _animCtrl.dispose();
-    _usernameCtrl.dispose();
+    _emailCtrl.dispose();
     _passwordCtrl.dispose();
     super.dispose();
   }
@@ -66,13 +66,13 @@ class _LoginScreenState extends State<LoginScreen>
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
-    final username = _usernameCtrl.text.trim();
+    final email = _emailCtrl.text.trim();
     final password = _passwordCtrl.text.trim();
     final authService = AuthService();
 
     try {
       final Account user = await authService.signIn(
-        username: username,
+        email: email,
         password: password,
       );
 
@@ -143,7 +143,7 @@ class _LoginScreenState extends State<LoginScreen>
       case 'invalid-credential':
         return 'Sai tài khoản hoặc mật khẩu';
       case 'invalid-email':
-        return 'Username không hợp lệ';
+        return 'Email không hợp lệ';
       case 'user-disabled':
         return 'Tài khoản đã bị khóa';
       case 'too-many-requests':
@@ -200,11 +200,12 @@ Widget build(BuildContext context) {
                     const SizedBox(height: 30),
 
                     TextFormField(
-                      controller: _usernameCtrl,
+                      controller: _emailCtrl,
+                      keyboardType: TextInputType.emailAddress,
                       decoration: InputDecoration(
-                        labelText: "Username",
+                        labelText: "Email",
                         prefixIcon:
-                            const Icon(Icons.person),
+                            const Icon(Icons.email_outlined),
                         border: OutlineInputBorder(
                           borderRadius:
                               BorderRadius.circular(15),
@@ -213,7 +214,10 @@ Widget build(BuildContext context) {
                       validator: (value) {
                         if (value == null ||
                             value.trim().isEmpty) {
-                          return "Vui lòng nhập username";
+                          return "Vui lòng nhập email";
+                        }
+                        if (!value.contains('@') || !value.contains('.')) {
+                          return "Email không hợp lệ";
                         }
                         return null;
                       },
@@ -322,17 +326,6 @@ Widget build(BuildContext context) {
                           ),
                         ),
                       ],
-                    ),
-
-                    const SizedBox(height: 10),
-
-                    const Text(
-                      "Admin: admin / 123456\nUser: user / 123456",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.grey,
-                        fontSize: 12,
-                      ),
                     ),
                   ],
                 ),
