@@ -1,16 +1,35 @@
 // lib/screens/food_detail_screen.dart
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../models/food_item.dart';
+import '../models/review.dart';
 import '../providers/cart_provider.dart';
+import '../providers/order_provider.dart';
+import '../providers/review_provider.dart';
 import '../widgets/cart_badge.dart';
 import 'cart_screen.dart';
+import 'review_screen.dart';
 
-class FoodDetailScreen extends StatelessWidget {
+class FoodDetailScreen extends StatefulWidget {
   final FoodItem food;
 
   const FoodDetailScreen({super.key, required this.food});
+
+  @override
+  State<FoodDetailScreen> createState() => _FoodDetailScreenState();
+}
+
+class _FoodDetailScreenState extends State<FoodDetailScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<ReviewProvider>().loadReviewsForFood(widget.food.id);
+    });
+  }
 
   String _formatPrice(double price) {
     return price.toInt().toString().replaceAllMapped(
@@ -20,13 +39,31 @@ class FoodDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cart = context.watch<CartProvider>();
-    final qty = cart.quantityOf(food.id);
+    final reviewProvider = context.watch<ReviewProvider>();
+    final orderProvider = context.watch<OrderProvider>();
+    final qty = cart.quantityOf(widget.food.id);
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    final avgRating = reviewProvider.reviewCount > 0
+        ? reviewProvider.averageRating.toStringAsFixed(1)
+        : widget.food.rating.toStringAsFixed(1);
+    final reviewCount = reviewProvider.reviewCount > 0
+        ? reviewProvider.reviewCount
+        : widget.food.reviewCount;
+
+    final canReview = uid != null &&
+        reviewProvider.canUserReview(
+          userId: uid,
+          foodId: widget.food.id,
+          orders: orderProvider.orders,
+        );
+
+    final previewReviews = reviewProvider.reviews.take(3).toList();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F8F8),
       body: CustomScrollView(
         slivers: [
-          // Hero image app bar
           SliverAppBar(
             expandedHeight: 280,
             pinned: true,
@@ -45,13 +82,15 @@ class FoodDetailScreen extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.all(12),
                 child: CartBadge(
-                    onTap: () => Navigator.push(context,
-                        MaterialPageRoute(builder: (_) => const CartScreen()))),
+                    onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const CartScreen()))),
               ),
             ],
             flexibleSpace: FlexibleSpaceBar(
               background: Image.network(
-                food.imageUrl,
+                widget.food.imageUrl,
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => Container(
                   color: Colors.grey[200],
@@ -60,8 +99,6 @@ class FoodDetailScreen extends StatelessWidget {
               ),
             ),
           ),
-
-          // Content
           SliverToBoxAdapter(
             child: Container(
               decoration: const BoxDecoration(
@@ -72,11 +109,10 @@ class FoodDetailScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Tags
-                  if (food.tags.isNotEmpty)
+                  if (widget.food.tags.isNotEmpty)
                     Wrap(
                       spacing: 6,
-                      children: food.tags
+                      children: widget.food.tags
                           .map((tag) => Container(
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 10, vertical: 4),
@@ -98,21 +134,19 @@ class FoodDetailScreen extends StatelessWidget {
                           .toList(),
                     ),
                   const SizedBox(height: 12),
-
-                  // Name & price
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: Text(
-                          food.name,
+                          widget.food.name,
                           style: const TextStyle(
                               fontSize: 22, fontWeight: FontWeight.w700),
                         ),
                       ),
                       Text(
-                        '${_formatPrice(food.price)}đ',
+                        '${_formatPrice(widget.food.price)}đ',
                         style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w700,
@@ -122,38 +156,92 @@ class FoodDetailScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
-
-                  // Stats
                   Row(
                     children: [
                       _statChip(Icons.star, Colors.amber,
-                          '${food.rating} (${food.reviewCount})'),
+                          '$avgRating ($reviewCount đánh giá)'),
                       const SizedBox(width: 12),
                       _statChip(Icons.timer_outlined, Colors.blue,
-                          '${food.prepTimeMinutes} phút'),
+                          '${widget.food.prepTimeMinutes} phút'),
                     ],
                   ),
                   const SizedBox(height: 20),
-
-                  // Description
                   const Text(
                     'Mô tả',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    food.description,
+                    widget.food.description,
                     style: TextStyle(
                         color: Colors.grey[700],
                         fontSize: 14,
                         height: 1.6),
                   ),
-                  const SizedBox(height: 30),
+                  const SizedBox(height: 24),
 
-                  // Quantity + Add to cart
+                  // Đánh giá
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Đánh giá',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                      if (canReview)
+                        TextButton.icon(
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  ReviewScreen(food: widget.food),
+                            ),
+                          ),
+                          icon: const Icon(Icons.rate_review_outlined,
+                              size: 18),
+                          label: const Text('Đánh giá'),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (reviewProvider.isLoading)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Center(
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    )
+                  else if (previewReviews.isEmpty)
+                    Text(
+                      'Chưa có đánh giá',
+                      style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                    )
+                  else ...[
+                    ...previewReviews.map(
+                      (r) => _CompactReviewTile(review: r),
+                    ),
+                    if (reviewProvider.reviewCount > 3)
+                      TextButton(
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ReviewScreen(food: widget.food),
+                          ),
+                        ),
+                        child: Text(
+                          'Xem tất cả ${reviewProvider.reviewCount} đánh giá',
+                        ),
+                      ),
+                  ],
+                  const SizedBox(height: 24),
+
                   Row(
                     children: [
-                      // Qty
                       Container(
                         decoration: BoxDecoration(
                           border: Border.all(color: Colors.grey[300]!),
@@ -165,7 +253,7 @@ class FoodDetailScreen extends StatelessWidget {
                               onPressed: qty > 0
                                   ? () => context
                                       .read<CartProvider>()
-                                      .removeItem(food.id)
+                                      .removeItem(widget.food.id)
                                   : null,
                               icon: const Icon(Icons.remove),
                               iconSize: 20,
@@ -176,8 +264,9 @@ class FoodDetailScreen extends StatelessWidget {
                                   fontSize: 16, fontWeight: FontWeight.w600),
                             ),
                             IconButton(
-                              onPressed: () =>
-                                  context.read<CartProvider>().addItem(food),
+                              onPressed: () => context
+                                  .read<CartProvider>()
+                                  .addItem(widget.food),
                               icon: const Icon(Icons.add),
                               iconSize: 20,
                             ),
@@ -185,14 +274,14 @@ class FoodDetailScreen extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 16),
-                      // Add button
                       Expanded(
                         child: ElevatedButton(
                           onPressed: () {
-                            context.read<CartProvider>().addItem(food);
+                            context.read<CartProvider>().addItem(widget.food);
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text('Đã thêm ${food.name} vào giỏ!'),
+                                content: Text(
+                                    'Đã thêm ${widget.food.name} vào giỏ!'),
                                 duration: const Duration(seconds: 1),
                                 backgroundColor:
                                     Theme.of(context).primaryColor,
@@ -230,6 +319,63 @@ class FoodDetailScreen extends StatelessWidget {
         Text(label,
             style: TextStyle(color: Colors.grey[700], fontSize: 13)),
       ],
+    );
+  }
+}
+
+class _CompactReviewTile extends StatelessWidget {
+  final Review review;
+
+  const _CompactReviewTile({required this.review});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F8F8),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                review.userName,
+                style: const TextStyle(
+                    fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+              const Spacer(),
+              Row(
+                children: List.generate(
+                  5,
+                  (i) => Icon(
+                    i < review.rating ? Icons.star : Icons.star_border,
+                    size: 12,
+                    color: Colors.amber,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (review.comment.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              review.comment,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: Colors.grey[700], fontSize: 12),
+            ),
+          ],
+          const SizedBox(height: 2),
+          Text(
+            DateFormat('dd/MM/yyyy').format(review.createdAt),
+            style: TextStyle(color: Colors.grey[500], fontSize: 10),
+          ),
+        ],
+      ),
     );
   }
 }

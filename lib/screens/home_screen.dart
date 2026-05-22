@@ -32,6 +32,17 @@ class _HomeScreenState extends State<HomeScreen> {
     final filteredFoods = foodProvider.filteredFoods;
     final popularFoods = foodProvider.popularFoods;
 
+    if (foodProvider.isLoading) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF8F8F8),
+        body: Center(
+          child: CircularProgressIndicator(
+            color: Color(0xFFFF6B35),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F8F8),
       body: SafeArea(
@@ -172,7 +183,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
             // Grid
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              // Padding dưới tránh bị che bởi bottom navigation
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
               sliver: filteredFoods.isEmpty
                   ? SliverToBoxAdapter(
                       child: Center(

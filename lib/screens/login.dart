@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:food_app/screens/home_screen.dart';
+import 'package:provider/provider.dart';
+import 'package:food_app/screens/main_shell.dart';
 import 'admin/admin_screen.dart';
-import 'package:food_app/data/account_data.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:food_app/models/account.dart';
 import 'package:food_app/screens/RegisterScreen.dart';
+import 'package:food_app/services/auth_service.dart';
+import 'package:food_app/providers/profile_provider.dart';
+import 'package:food_app/providers/order_provider.dart';
+import 'package:food_app/providers/review_provider.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -60,37 +65,58 @@ class _LoginScreenState extends State<LoginScreen>
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 700));
-    if (!mounted) return;
-    setState(() => _isLoading = false);
 
     final username = _usernameCtrl.text.trim();
     final password = _passwordCtrl.text.trim();
+    final authService = AuthService();
 
     try {
-      final UserModel user = mockUsers.firstWhere(
-        (u) => u.username == username && u.password == password,
+      final Account user = await authService.signIn(
+        username: username,
+        password: password,
       );
 
-      if (user.role == 'admin') {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      if (user.isAdmin) {
+        await context.read<ProfileProvider>().clear();
+        await context.read<OrderProvider>().clear();
+        await context.read<ReviewProvider>().clear();
+        if (!mounted) return;
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const AdminScreen()),
         );
       } else {
+        // Tải hồ sơ khách hàng realtime
+        await Future.wait([
+          context.read<ProfileProvider>().bindUser(
+                user.id,
+                email: user.email,
+                fullName: user.username,
+              ),
+          context.read<OrderProvider>().bindUser(user.id),
+        ]);
+        if (!mounted) return;
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
+          MaterialPageRoute(builder: (_) => const MainShell()),
         );
       }
-    } catch (e) {
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      final message = _authErrorMessage(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Row(children: [
-            Icon(Icons.error_rounded, color: Colors.white),
-            SizedBox(width: 10),
-            Text("Sai tài khoản hoặc mật khẩu",
-                style: TextStyle(fontWeight: FontWeight.w600)),
+          content: Row(children: [
+            const Icon(Icons.error_rounded, color: Colors.white),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(message,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
           ]),
           backgroundColor: const Color(0xFFEF4444),
           behavior: SnackBarBehavior.floating,
@@ -98,6 +124,32 @@ class _LoginScreenState extends State<LoginScreen>
           margin: const EdgeInsets.all(16),
         ),
       );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Lỗi đăng nhập: $e'),
+          backgroundColor: const Color(0xFFEF4444),
+        ),
+      );
+    }
+  }
+
+  String _authErrorMessage(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'user-not-found':
+      case 'wrong-password':
+      case 'invalid-credential':
+        return 'Sai tài khoản hoặc mật khẩu';
+      case 'invalid-email':
+        return 'Username không hợp lệ';
+      case 'user-disabled':
+        return 'Tài khoản đã bị khóa';
+      case 'too-many-requests':
+        return 'Quá nhiều lần thử. Vui lòng thử lại sau';
+      default:
+        return e.message ?? 'Đăng nhập thất bại';
     }
   }
 

@@ -43,3 +43,17 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Firebase secrets - QUAN TRỌNG, không được push key lên Git
+google-services.json
+GoogleService-Info.plist
+firebase_options.dart
+serviceAccount.json
+**/serviceAccount.json
+
+# Firestore import folder (chứa private key)
+lib/firestore_import/
+
+# Node.js
+node_modules/
+package-lock.json

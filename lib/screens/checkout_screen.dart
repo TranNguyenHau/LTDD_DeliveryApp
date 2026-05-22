@@ -1,5 +1,6 @@
 // lib/screens/checkout_screen.dart
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/cart_provider.dart';
@@ -17,6 +18,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final _addressController =
       TextEditingController(text: '123 Nguyễn Huệ, Q.1, TP.HCM');
   int _paymentMethod = 0; // 0: Tiền mặt, 1: Ví điện tử
+  bool _isPlacing = false;
 
   String _formatPrice(double price) {
     return price.toInt().toString().replaceAllMapped(
@@ -128,35 +130,78 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () {
-                  final order = context.read<OrderProvider>().placeOrder(
-                        items: cart.items.values.toList(),
-                        totalAmount: total,
-                        deliveryAddress: _addressController.text,
-                      );
-                  context.read<CartProvider>().clear();
-                  Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => OrderSuccessScreen(order: order)),
-                    (route) => route.isFirst,
-                  );
-                },
+                onPressed: _isPlacing ? null : () => _placeOrder(context, cart, total),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14)),
                 ),
-                child: Text(
-                  'Đặt hàng - ${_formatPrice(total)}đ',
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.w600),
-                ),
+                child: _isPlacing
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(
+                        'Đặt hàng - ${_formatPrice(total)}đ',
+                        style: const TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _placeOrder(
+    BuildContext context,
+    CartProvider cart,
+    double total,
+  ) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vui lòng đăng nhập để đặt hàng'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isPlacing = true);
+
+    final order = await context.read<OrderProvider>().placeOrder(
+          userId: uid,
+          items: cart.items.values.toList(),
+          totalAmount: total,
+          deliveryAddress: _addressController.text.trim(),
+        );
+
+    if (!mounted) return;
+    setState(() => _isPlacing = false);
+
+    if (order == null) {
+      final err = context.read<OrderProvider>().errorMessage;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(err ?? 'Đặt hàng thất bại'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    context.read<CartProvider>().clear();
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => OrderSuccessScreen(order: order)),
+      (route) => route.isFirst,
     );
   }
 

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:food_app/screens/home_screen.dart';
+import 'package:food_app/screens/main_shell.dart';
 
 import 'package:food_app/models/food_item.dart';
 import 'package:food_app/providers/food_provider.dart';
@@ -33,7 +33,8 @@ class _AdminScreenState extends State<AdminScreen> {
     final descCtrl = TextEditingController(text: food?.description ?? '');
     final formKey = GlobalKey<FormState>();
     final isEdit = food != null;
-    String selectedCategoryId = food?.categoryId ?? 'com'; // Default to 'com'
+    String selectedCategoryId = food?.categoryId ?? 'monchinh';
+    bool dialogLoading = false;
 
     showDialog(
       context: context,
@@ -207,30 +208,48 @@ class _AdminScreenState extends State<AdminScreen> {
                           ],
                         ),
                         child: ElevatedButton(
-                          onPressed: () {
-                            if (!formKey.currentState!.validate()) return;
-                            final provider = context.read<FoodProvider>();
-                            final newFood = FoodItem(
-                              id: food?.id ??
-                                  DateTime.now().millisecondsSinceEpoch.toString(),
-                              name: nameCtrl.text,
-                              description: descCtrl.text,
-                              price: double.tryParse(priceCtrl.text) ?? 0,
-                              imageUrl: imageCtrl.text,
-                              categoryId: selectedCategoryId,
-                              rating: food?.rating ?? 4.5,
-                              reviewCount: food?.reviewCount ?? 0,
-                              prepTimeMinutes: food?.prepTimeMinutes ?? 15,
-                              isPopular: food?.isPopular ?? false,
-                              tags: food?.tags ?? [],
-                            );
-                            if (isEdit) {
-                              provider.updateFood(newFood);
-                            } else {
-                              provider.addFood(newFood);
-                            }
-                            Navigator.pop(context);
-                          },
+                          onPressed: dialogLoading
+                              ? null
+                              : () async {
+                                  if (!formKey.currentState!.validate()) {
+                                    return;
+                                  }
+                                  setState(() => dialogLoading = true);
+                                  final provider =
+                                      context.read<FoodProvider>();
+                                  final newFood = FoodItem(
+                                    id: food?.id ??
+                                        'food_${DateTime.now().millisecondsSinceEpoch}',
+                                    name: nameCtrl.text.trim(),
+                                    description: descCtrl.text.trim(),
+                                    price:
+                                        double.tryParse(priceCtrl.text) ?? 0,
+                                    imageUrl: imageCtrl.text.trim(),
+                                    categoryId: selectedCategoryId,
+                                    rating: food?.rating ?? 4.5,
+                                    reviewCount: food?.reviewCount ?? 0,
+                                    prepTimeMinutes:
+                                        food?.prepTimeMinutes ?? 15,
+                                    isPopular: food?.isPopular ?? false,
+                                    tags: food?.tags ?? [],
+                                  );
+                                  final error = isEdit
+                                      ? await provider.updateFood(newFood)
+                                      : await provider.addFood(newFood);
+                                  if (!context.mounted) return;
+                                  setState(() => dialogLoading = false);
+                                  if (error != null) {
+                                    ScaffoldMessenger.of(context)
+                                        .showSnackBar(
+                                      SnackBar(
+                                        content: Text(error),
+                                        backgroundColor: _danger,
+                                      ),
+                                    );
+                                    return;
+                                  }
+                                  Navigator.pop(context);
+                                },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.transparent,
                             shadowColor: Colors.transparent,
@@ -239,13 +258,22 @@ class _AdminScreenState extends State<AdminScreen> {
                               borderRadius: BorderRadius.circular(14),
                             ),
                           ),
-                          child: Text(
-                            isEdit ? "Lưu thay đổi" : "Thêm món",
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
-                          ),
+                          child: dialogLoading
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Text(
+                                  isEdit ? "Lưu thay đổi" : "Thêm món",
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
+                                  ),
+                                ),
                         ),
                       ),
                     ),
@@ -262,10 +290,13 @@ class _AdminScreenState extends State<AdminScreen> {
 
   // ─── Delete confirm dialog ──────────────────────────────────
   void showDeleteDialog(FoodItem food) {
+    var deleteLoading = false;
+
     showDialog(
       context: context,
       barrierColor: Colors.black.withOpacity(0.7),
-      builder: (_) => Dialog(
+      builder: (_) => StatefulBuilder(
+        builder: (context, setDialogState) => Dialog(
         backgroundColor: Colors.transparent,
         child: Container(
           padding: const EdgeInsets.all(28),
@@ -321,10 +352,26 @@ class _AdminScreenState extends State<AdminScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: () {
-                        context.read<FoodProvider>().deleteFood(food.id);
-                        Navigator.pop(context);
-                      },
+                      onPressed: deleteLoading
+                          ? null
+                          : () async {
+                              setDialogState(() => deleteLoading = true);
+                              final error = await context
+                                  .read<FoodProvider>()
+                                  .deleteFood(food.id);
+                              if (!context.mounted) return;
+                              if (error != null) {
+                                setDialogState(() => deleteLoading = false);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(error),
+                                    backgroundColor: _danger,
+                                  ),
+                                );
+                                return;
+                              }
+                              Navigator.pop(context);
+                            },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _danger,
                         padding: const EdgeInsets.symmetric(vertical: 14),
@@ -332,10 +379,21 @@ class _AdminScreenState extends State<AdminScreen> {
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      child: const Text(
-                        "Xóa",
-                        style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white),
-                      ),
+                      child: deleteLoading
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text(
+                              "Xóa",
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white),
+                            ),
                     ),
                   ),
                 ],
@@ -343,6 +401,7 @@ class _AdminScreenState extends State<AdminScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }
@@ -393,7 +452,8 @@ class _AdminScreenState extends State<AdminScreen> {
   // ─── Build ──────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final foods = context.watch<FoodProvider>().filteredFoods;
+    final foodProvider = context.watch<FoodProvider>();
+    final foods = foodProvider.foods;
 
     return Scaffold(
       backgroundColor: _bg,
@@ -421,7 +481,7 @@ class _AdminScreenState extends State<AdminScreen> {
           TextButton.icon(
             onPressed: () => Navigator.pushReplacement(
               context,
-              MaterialPageRoute(builder: (_) => const HomeScreen()),
+              MaterialPageRoute(builder: (_) => const MainShell()),
             ),
             icon: const Icon(Icons.storefront_rounded, color: Colors.white, size: 18),
             label: const Text(
@@ -458,8 +518,14 @@ class _AdminScreenState extends State<AdminScreen> {
         label: const Text("Thêm món", style: TextStyle(fontWeight: FontWeight.w700)),
       ),
 
-      body: foods.isEmpty
-          ? Center(
+      body: Stack(
+        children: [
+          if (foodProvider.isLoading)
+            const Center(
+              child: CircularProgressIndicator(color: _accent),
+            )
+          else if (foods.isEmpty)
+            Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -473,7 +539,8 @@ class _AdminScreenState extends State<AdminScreen> {
                 ],
               ),
             )
-          : GridView.builder(
+          else
+            GridView.builder(
               padding: const EdgeInsets.fromLTRB(16, 20, 16, 100),
               itemCount: foods.length,
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -491,6 +558,15 @@ class _AdminScreenState extends State<AdminScreen> {
                 );
               },
             ),
+          if (foodProvider.isSaving)
+            Container(
+              color: Colors.black.withOpacity(0.35),
+              child: const Center(
+                child: CircularProgressIndicator(color: _accent),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

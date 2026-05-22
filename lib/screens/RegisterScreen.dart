@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:food_app/data/account_data.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:food_app/services/auth_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -60,23 +61,22 @@ class _RegisterScreenState extends State<RegisterScreen>
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 700));
-    if (!mounted) return;
 
-    final success = registerUser(
-      username: _usernameCtrl.text.trim(),
-      password: _passwordCtrl.text.trim(),
-    );
+    try {
+      await AuthService().register(
+        username: _usernameCtrl.text.trim(),
+        password: _passwordCtrl.text.trim(),
+      );
 
-    setState(() => _isLoading = false);
+      if (!mounted) return;
+      setState(() => _isLoading = false);
 
-    if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Row(children: [
             Icon(Icons.check_circle_rounded, color: Colors.white),
             SizedBox(width: 10),
-            Text("Đăng ký thành công! Hãy đăng nhập.",
+            Text('Đăng ký thành công! Hãy đăng nhập.',
                 style: TextStyle(fontWeight: FontWeight.w600)),
           ]),
           backgroundColor: const Color(0xFF22C55E),
@@ -86,19 +86,38 @@ class _RegisterScreenState extends State<RegisterScreen>
         ),
       );
       Navigator.pop(context);
-    } else {
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      final message = e.code == 'username-already-in-use' ||
+              e.code == 'email-already-in-use'
+          ? 'Username đã tồn tại, vui lòng chọn tên khác'
+          : (e.message ?? 'Đăng ký thất bại');
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Row(children: [
-            Icon(Icons.error_rounded, color: Colors.white),
-            SizedBox(width: 10),
-            Text("Username đã tồn tại, vui lòng chọn tên khác",
-                style: TextStyle(fontWeight: FontWeight.w600)),
+          content: Row(children: [
+            const Icon(Icons.error_rounded, color: Colors.white),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(message,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
           ]),
           backgroundColor: const Color(0xFFEF4444),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           margin: const EdgeInsets.all(16),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Lỗi đăng ký: $e'),
+          backgroundColor: const Color(0xFFEF4444),
         ),
       );
     }
