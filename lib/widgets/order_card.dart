@@ -23,14 +23,16 @@ class OrderCard extends StatelessWidget {
   Color _statusColor(OrderStatus status) {
     switch (status) {
       case OrderStatus.pending:
-        return const Color(0xFFF59E0B);
+        return const Color(0xFFF59E0B); // Vàng
       case OrderStatus.confirmed:
       case OrderStatus.preparing:
-        return const Color(0xFF3B82F6);
+        return const Color(0xFF3B82F6); // Xanh dương
       case OrderStatus.delivering:
-        return const Color(0xFF8B5CF6);
-      case OrderStatus.delivered:
-        return const Color(0xFF22C55E);
+        return const Color(0xFFFF6B00); // Cam
+      case OrderStatus.completed:
+        return const Color(0xFF22C55E); // Xanh lá
+      case OrderStatus.cancelled:
+        return const Color(0xFFEF4444); // Đỏ
     }
   }
 
@@ -40,6 +42,10 @@ class OrderCard extends StatelessWidget {
     final itemSummary = order.items
         .map((i) => '${i.food.name} x${i.quantity}')
         .join(', ');
+
+    final orderIdDisplay = order.id.length > 16 
+        ? '${order.id.substring(0, 16)}...' 
+        : order.id;
 
     return GestureDetector(
       onTap: onTap,
@@ -64,7 +70,7 @@ class OrderCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  order.id,
+                  orderIdDisplay,
                   style: const TextStyle(
                     fontWeight: FontWeight.w700,
                     fontSize: 13,

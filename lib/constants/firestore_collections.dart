@@ -8,4 +8,5 @@ class FirestoreCollections {
   static const String accounts = 'accounts';
   static const String users = 'users';
   static const String reviews = 'reviews';
+  static const String coupons = 'coupons';
 }

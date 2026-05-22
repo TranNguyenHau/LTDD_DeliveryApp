@@ -98,7 +98,7 @@ class _OrderScreenState extends State<OrderScreen> {
                                 context,
                                 MaterialPageRoute(
                                   builder: (_) =>
-                                      OrderDetailScreen(order: order),
+                                      OrderDetailScreen(orderId: order.id),
                                 ),
                               ),
                             );
