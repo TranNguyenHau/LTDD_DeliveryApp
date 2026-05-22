@@ -59,12 +59,14 @@ class UserProfile {
     required String id,
     required String email,
     String fullName = '',
+    String phone = '',
   }) {
     final now = DateTime.now();
     return UserProfile(
       id: id,
       fullName: fullName,
       email: email,
+      phone: phone,
       createdAt: now,
       updatedAt: now,
     );

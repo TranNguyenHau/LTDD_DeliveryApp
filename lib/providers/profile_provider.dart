@@ -31,7 +31,12 @@ class ProfileProvider with ChangeNotifier {
   bool get hasProfile => _profile != null;
 
   /// Gắn user và lắng nghe thay đổi realtime từ Firestore
-  Future<void> bindUser(String userId, {String? email, String? fullName}) async {
+  Future<void> bindUser(
+    String userId, {
+    String? email,
+    String? fullName,
+    String? phone,
+  }) async {
     if (_userId == userId && _profileSub != null) return;
 
     await _profileSub?.cancel();
@@ -40,8 +45,20 @@ class ProfileProvider with ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
 
-    // Đảm bảo document tồn tại
-    await _ensureProfileDoc(userId, email: email, fullName: fullName);
+    // Đảm bảo document tồn tại (có thể ghi sẵn fullName/phone từ đăng ký)
+    await _ensureProfileDoc(
+      userId,
+      email: email,
+      fullName: fullName,
+      phone: phone,
+    );
+
+    // Tải profile đồng bộ — tránh race khi updateProfile() gọi ngay sau bindUser
+    final ref = _db.collection(FirestoreCollections.users).doc(userId);
+    final snap = await ref.get();
+    if (snap.exists && snap.data() != null) {
+      _profile = UserProfile.fromMap(snap.data()!);
+    }
 
     _profileSub = _db
         .collection(FirestoreCollections.users)
@@ -69,26 +86,37 @@ class ProfileProvider with ChangeNotifier {
     String userId, {
     String? email,
     String? fullName,
+    String? phone,
   }) async {
     final ref = _db.collection(FirestoreCollections.users).doc(userId);
     final doc = await ref.get();
-    
+
     if (!doc.exists) {
-      // Create new profile
       final profile = UserProfile.initial(
         id: userId,
         email: email ?? '',
         fullName: fullName ?? '',
+        phone: phone ?? '',
       );
       await ref.set(profile.toMap());
-    } else if (fullName != null && fullName.isNotEmpty) {
-      // Doc exists but fullName might be empty (just registered)
-      final existingFullName = doc.data()?['fullName'] as String? ?? '';
-      if (existingFullName.isEmpty) {
-        await ref.update({
-          'fullName': fullName.trim(),
-          'updatedAt': DateTime.now().toIso8601String(),
-        });
+    } else {
+      // Doc đã có (tạo ở bước 1 đăng ký) — bổ sung fullName/phone nếu còn trống
+      final data = doc.data()!;
+      final updates = <String, dynamic>{};
+
+      if (fullName != null &&
+          fullName.isNotEmpty &&
+          (data['fullName'] as String? ?? '').isEmpty) {
+        updates['fullName'] = fullName.trim();
+      }
+      if (phone != null &&
+          phone.isNotEmpty &&
+          (data['phone'] as String? ?? '').isEmpty) {
+        updates['phone'] = phone.trim();
+      }
+      if (updates.isNotEmpty) {
+        updates['updatedAt'] = DateTime.now().toIso8601String();
+        await ref.update(updates);
       }
     }
   }
@@ -99,8 +127,18 @@ class ProfileProvider with ChangeNotifier {
     required String phone,
     required String address,
   }) async {
-    if (_userId == null || _profile == null) {
+    if (_userId == null) {
       return 'Chưa có thông tin người dùng';
+    }
+
+    // Đảm bảo _profile đã load (fix race sau bindUser)
+    if (_profile == null) {
+      final snap =
+          await _db.collection(FirestoreCollections.users).doc(_userId).get();
+      if (!snap.exists || snap.data() == null) {
+        return 'Chưa có thông tin người dùng';
+      }
+      _profile = UserProfile.fromMap(snap.data()!);
     }
 
     _isSaving = true;

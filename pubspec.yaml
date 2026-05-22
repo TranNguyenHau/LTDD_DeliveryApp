@@ -27,6 +27,13 @@ dependencies:
   intl: ^0.18.1
   image_picker: ^1.0.7
 
+# Map & Location
+  flutter_map: ^6.1.0
+  latlong2: ^0.9.1
+  geolocator: ^11.1.0
+  geocoding: ^3.0.0
+  flutter_map_location_marker: ^8.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
