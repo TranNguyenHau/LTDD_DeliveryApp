@@ -1,7 +1,10 @@
 // lib/widgets/food_card.dart
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/food_item.dart';
 import '../providers/cart_provider.dart';
 
@@ -10,6 +13,52 @@ class FoodCard extends StatelessWidget {
   final VoidCallback? onTap;
 
   const FoodCard({super.key, required this.food, this.onTap});
+
+  // ─── Hiển thị ảnh theo loại: base64 / asset / network ─────
+  Widget _buildImage(String imageUrl) {
+    // Placeholder dùng chung khi không có ảnh hoặc lỗi
+    Widget placeholder({bool loading = false}) => Container(
+      color: Colors.grey[100],
+      child: Center(
+        child: loading
+            ? const CircularProgressIndicator(strokeWidth: 2)
+            : const Icon(Icons.restaurant, size: 40, color: Colors.grey),
+      ),
+    );
+
+    if (imageUrl.isEmpty) return placeholder();
+
+    // Ảnh base64 (lưu trong Firestore)
+    if (imageUrl.startsWith('data:image')) {
+      try {
+        final base64Data = imageUrl.split(',')[1];
+        return Image.memory(
+          base64Decode(base64Data),
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => placeholder(),
+        );
+      } catch (_) {
+        return placeholder();
+      }
+    }
+
+    // Ảnh asset local
+    if (imageUrl.startsWith('assets/')) {
+      return Image.asset(
+        imageUrl,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => placeholder(),
+      );
+    }
+
+    // Ảnh network (URL http/https) — dùng cache
+    return CachedNetworkImage(
+      imageUrl: imageUrl,
+      fit: BoxFit.cover,
+      placeholder: (_, __) => placeholder(loading: true),
+      errorWidget: (_, __, ___) => placeholder(),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -38,19 +87,11 @@ class FoodCard extends StatelessWidget {
               flex: 3,
               child: ClipRRect(
                 borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(16)),
+                const BorderRadius.vertical(top: Radius.circular(16)),
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    Image.network(
-                      food.imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        color: Colors.grey[200],
-                        child: const Icon(Icons.restaurant,
-                            size: 40, color: Colors.grey),
-                      ),
-                    ),
+                    _buildImage(food.imageUrl),
                     if (food.isPopular)
                       Positioned(
                         top: 8,
@@ -75,6 +116,7 @@ class FoodCard extends StatelessWidget {
                 ),
               ),
             ),
+
             // Info
             Expanded(
               flex: 2,
@@ -97,14 +139,14 @@ class FoodCard extends StatelessWidget {
                         const SizedBox(width: 2),
                         Text(
                           food.rating.toString(),
-                          style: TextStyle(
-                              fontSize: 11, color: Colors.grey[600]),
+                          style:
+                          TextStyle(fontSize: 11, color: Colors.grey[600]),
                         ),
                         const Spacer(),
                         Text(
                           '${food.prepTimeMinutes} phút',
-                          style: TextStyle(
-                              fontSize: 11, color: Colors.grey[600]),
+                          style:
+                          TextStyle(fontSize: 11, color: Colors.grey[600]),
                         ),
                       ],
                     ),
@@ -129,8 +171,8 @@ class FoodCard extends StatelessWidget {
                               color: inCart
                                   ? Theme.of(context).primaryColor
                                   : Theme.of(context)
-                                      .primaryColor
-                                      .withOpacity(0.1),
+                                  .primaryColor
+                                  .withOpacity(0.1),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Icon(

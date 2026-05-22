@@ -10,6 +10,7 @@ import 'admin_food_screen.dart';
 import 'admin_coupon_screen.dart';
 import 'admin_order_screen.dart';
 import 'admin_review_screen.dart';
+import 'admin_user_screen.dart';
 import 'admin_stats_screen.dart';
 import 'admin_account_screen.dart';
 
@@ -24,8 +25,7 @@ class _AdminShellState extends State<AdminShell> with SingleTickerProviderStateM
   int _selectedIndex = 0;
   StreamSubscription? _orderSubscription;
   int _pendingOrdersCount = 0;
-  
-  // GrabFood style banner state
+
   late AnimationController _bannerController;
   late Animation<Offset> _bannerOffset;
   Order? _newOrder;
@@ -37,19 +37,19 @@ class _AdminShellState extends State<AdminShell> with SingleTickerProviderStateM
   static const _textMuted = Color(0xFF94A3B8);
 
   final List<Widget> _screens = const [
-    AdminFoodScreen(),
-    AdminCouponScreen(),
-    AdminOrderScreen(),
-    AdminReviewScreen(),
-    AdminStatsScreen(),
-    AdminAccountScreen(),
+    AdminFoodScreen(),     // 0 - Món ăn
+    AdminCouponScreen(),   // 1 - Voucher
+    AdminOrderScreen(),    // 2 - Đơn hàng
+    AdminReviewScreen(),   // 3 - Đánh giá
+    AdminUserScreen(),     // 4 - Người dùng ← MỚI
+    AdminStatsScreen(),    // 5 - Thống kê
+    AdminAccountScreen(),  // 6 - Tài khoản
   ];
 
   @override
   void initState() {
     super.initState();
-    
-    // Setup Banner Animation
+
     _bannerController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
@@ -62,7 +62,6 @@ class _AdminShellState extends State<AdminShell> with SingleTickerProviderStateM
       curve: Curves.easeOutBack,
     ));
 
-    // Listen for new pending orders
     _orderSubscription = FirebaseFirestore.instance
         .collection(FirestoreCollections.orders)
         .where('status', isEqualTo: OrderStatus.pending.name)
@@ -74,7 +73,6 @@ class _AdminShellState extends State<AdminShell> with SingleTickerProviderStateM
       for (var change in snapshot.docChanges) {
         if (change.type == DocumentChangeType.added) {
           final order = Order.fromMap(change.doc.data() as Map<String, dynamic>);
-          // Only show banner for orders created after admin opened the shell
           if (order.createdAt.isAfter(_appStartTime)) {
             _showNewOrderBanner(order);
           }
@@ -87,8 +85,6 @@ class _AdminShellState extends State<AdminShell> with SingleTickerProviderStateM
     if (!mounted) return;
     setState(() => _newOrder = order);
     _bannerController.forward();
-    
-    // Auto dismiss after 4 seconds
     Future.delayed(const Duration(seconds: 4), () {
       if (mounted) _bannerController.reverse();
     });
@@ -132,9 +128,11 @@ class _AdminShellState extends State<AdminShell> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     final reviewProvider = context.watch<ReviewProvider>();
-    
+
     final pendingOrdersCount = _pendingOrdersCount;
-    final unrepliedReviewsCount = reviewProvider.allReviews.where((r) => r.adminReply == null || r.adminReply!.isEmpty).length;
+    final unrepliedReviewsCount = reviewProvider.allReviews
+        .where((r) => r.adminReply == null || r.adminReply!.isEmpty)
+        .length;
 
     return Scaffold(
       body: Stack(
@@ -143,60 +141,62 @@ class _AdminShellState extends State<AdminShell> with SingleTickerProviderStateM
             index: _selectedIndex,
             children: _screens,
           ),
-          
-          // GrabFood style Banner
+
+          // New order banner
           SlideTransition(
             position: _bannerOffset,
             child: SafeArea(
               child: Align(
                 alignment: Alignment.topCenter,
-                child: _newOrder == null ? const SizedBox() : Container(
-                  margin: const EdgeInsets.all(16),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: _orange,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4)),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.shopping_basket_rounded, color: Colors.white, size: 28),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                child: _newOrder == null
+                    ? const SizedBox()
+                    : Container(
+                        margin: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: _orange,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4)),
+                          ],
+                        ),
+                        child: Row(
                           children: [
-                            const Text(
-                              'ĐƠN HÀNG MỚI! 🔔',
-                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                            const Icon(Icons.shopping_basket_rounded, color: Colors.white, size: 28),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'ĐƠN HÀNG MỚI! 🔔',
+                                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                  ),
+                                  Text(
+                                    '#${_newOrder!.id.substring(0, 8).toUpperCase()} - ${NumberFormat.decimalPattern().format(_newOrder!.totalAmount)}đ',
+                                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                                  ),
+                                ],
+                              ),
                             ),
-                            Text(
-                              '#${_newOrder!.id.substring(0, 8).toUpperCase()} - ${NumberFormat.decimalPattern().format(_newOrder!.totalAmount)}đ',
-                              style: const TextStyle(color: Colors.white, fontSize: 12),
+                            TextButton(
+                              onPressed: () {
+                                _bannerController.reverse();
+                                setState(() => _selectedIndex = 2); // Orders tab
+                              },
+                              style: TextButton.styleFrom(
+                                backgroundColor: Colors.white.withOpacity(0.2),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              child: const Text('XEM', style: TextStyle(fontWeight: FontWeight.bold)),
                             ),
                           ],
                         ),
                       ),
-                      TextButton(
-                        onPressed: () {
-                          _bannerController.reverse();
-                          setState(() => _selectedIndex = 2); // Go to Orders tab
-                        },
-                        style: TextButton.styleFrom(
-                          backgroundColor: Colors.white.withOpacity(0.2),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: const Text('XEM', style: TextStyle(fontWeight: FontWeight.bold)),
-                      ),
-                    ],
-                  ),
-                ),
               ),
             ),
           ),
@@ -209,8 +209,8 @@ class _AdminShellState extends State<AdminShell> with SingleTickerProviderStateM
         selectedItemColor: _accent,
         unselectedItemColor: _textMuted,
         type: BottomNavigationBarType.fixed,
-        selectedFontSize: 12,
-        unselectedFontSize: 12,
+        selectedFontSize: 11,
+        unselectedFontSize: 11,
         items: [
           const BottomNavigationBarItem(
             icon: Icon(Icons.restaurant_menu_rounded),
@@ -227,6 +227,10 @@ class _AdminShellState extends State<AdminShell> with SingleTickerProviderStateM
           BottomNavigationBarItem(
             icon: _buildTabIcon(Icons.star_rounded, unrepliedReviewsCount),
             label: 'Đánh giá',
+          ),
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.people_rounded),
+            label: 'Người dùng',
           ),
           const BottomNavigationBarItem(
             icon: Icon(Icons.bar_chart_rounded),

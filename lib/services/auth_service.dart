@@ -56,6 +56,9 @@ class AuthService {
       password: password,
     );
 
+    // Gửi email xác thực trước khi tạo document Firestore
+    await cred.user?.sendEmailVerification();
+
     final uid = cred.user!.uid;
 
     final account = Account(

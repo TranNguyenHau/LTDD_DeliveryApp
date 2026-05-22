@@ -32,12 +32,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
     await context.read<OrderProvider>().bindUser(uid);
   }
 
-  Future<bool> _getReviewedFuture(String foodId) {
+  Future<bool> _getReviewedFuture(String orderId, String foodId) {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    final key = '${uid}_$foodId';
+    final key = '${uid}_${orderId}_$foodId';
     return _reviewedCache.putIfAbsent(
       key,
-      () => context.read<ReviewProvider>().hasUserReviewedFood(uid, foodId),
+      () => context
+          .read<ReviewProvider>()
+          .hasUserReviewedFoodInOrder(uid, foodId, orderId),
     );
   }
 
@@ -179,7 +181,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                                   ),
                                                   const SizedBox(width: 8),
                                                   FutureBuilder<bool>(
-                                                    future: _getReviewedFuture(item.food.id),
+                                                    future: _getReviewedFuture(
+                                                        order.id, item.food.id),
                                                     builder: (context, snapshot) {
                                                       final hasReviewed =
                                                           snapshot.data ?? false;
@@ -196,17 +199,32 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                                       }
 
                                                       return TextButton(
-                                                        onPressed: () => Navigator.push(
-                                                          context,
-                                                          MaterialPageRoute(
-                                                            builder: (_) => ReviewScreen(
-                                                                food: item.food),
-                                                          ),
-                                                        ).then((_) {
-                                                          final uidStr = FirebaseAuth.instance.currentUser?.uid ?? '';
-                                                          _reviewedCache.remove('${uidStr}_${item.food.id}');
-                                                          setState(() {});
-                                                        }),
+                                                        onPressed: () async {
+                                                          final reviewed =
+                                                              await Navigator.push<bool>(
+                                                            context,
+                                                            MaterialPageRoute(
+                                                              builder: (_) =>
+                                                                  ReviewScreen(
+                                                                food: item.food,
+                                                                orderId: order.id,
+                                                              ),
+                                                            ),
+                                                          );
+                                                          if (!mounted) return;
+                                                          if (reviewed == true) {
+                                                            final uidStr =
+                                                                FirebaseAuth
+                                                                    .instance
+                                                                    .currentUser
+                                                                    ?.uid ??
+                                                                '';
+                                                            _reviewedCache.remove(
+                                                                '${uidStr}_${order.id}_${item.food.id}',
+                                                            );
+                                                            setState(() {});
+                                                          }
+                                                        },
                                                         style: TextButton.styleFrom(
                                                           padding: const EdgeInsets.symmetric(
                                                               horizontal: 12, vertical: 4),

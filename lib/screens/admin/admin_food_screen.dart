@@ -1,5 +1,9 @@
+import 'dart:io';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'package:food_app/models/food_item.dart';
 import 'package:food_app/providers/food_provider.dart';
@@ -23,159 +27,455 @@ class _AdminFoodScreenState extends State<AdminFoodScreen> {
   static const _textMuted = Color(0xFF94A3B8);
   static const _border = Color(0xFF2D3F5C);
 
-  // ─── Dialog ────────────────────────────────────────────────
+  // ─── Encode ảnh thành Base64 để lưu vào Firestore ─────────
+  Future<String?> _encodeImageToBase64(File imageFile) async {
+    try {
+      final bytes = await imageFile.readAsBytes();
+      final base64String = base64Encode(bytes);
+      return 'data:image/jpeg;base64,$base64String';
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // ─── Helper hiển thị ảnh (base64 / network / asset) ───────
+  Widget _buildImage(String imageUrl, {BoxFit fit = BoxFit.cover, Widget? errorWidget}) {
+    final fallback = errorWidget ??
+        Container(
+          color: const Color(0xFF0F172A),
+          child: const Icon(Icons.broken_image_rounded, color: _textMuted, size: 40),
+        );
+
+    if (imageUrl.isEmpty) return fallback;
+
+    if (imageUrl.startsWith('data:image')) {
+      try {
+        final base64Data = imageUrl.split(',')[1];
+        return Image.memory(base64Decode(base64Data), fit: fit);
+      } catch (_) {
+        return fallback;
+      }
+    }
+
+    if (imageUrl.startsWith('assets/')) {
+      return Image.asset(imageUrl, fit: fit);
+    }
+
+    return Image.network(
+      imageUrl,
+      fit: fit,
+      errorBuilder: (_, __, ___) => fallback,
+    );
+  }
+
+  // ─── Dialog thêm / sửa món ────────────────────────────────
   void showFoodDialog({FoodItem? food}) {
     final nameCtrl = TextEditingController(text: food?.name ?? '');
     final priceCtrl = TextEditingController(text: food?.price.toString() ?? '');
-    final imageCtrl = TextEditingController(text: food?.imageUrl ?? '');
     final descCtrl = TextEditingController(text: food?.description ?? '');
     final formKey = GlobalKey<FormState>();
     final isEdit = food != null;
     String selectedCategoryId = food?.categoryId ?? 'monchinh';
     bool dialogLoading = false;
+    File? pickedImageFile;
+    String currentImageUrl = food?.imageUrl ?? '';
 
     showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.7),
       builder: (_) => StatefulBuilder(
-        builder: (context, setState) => Dialog(
+        builder: (context, setState) {
+          Future<void> pickImage() async {
+            final picker = ImagePicker();
+            final picked = await picker.pickImage(
+              source: ImageSource.gallery,
+              maxWidth: 400,
+              maxHeight: 400,
+              imageQuality: 60,
+            );
+            if (picked != null) {
+              setState(() => pickedImageFile = File(picked.path));
+            }
+          }
+
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
+            child: Container(
+              decoration: BoxDecoration(
+                color: _surface,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: _border, width: 1.2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    blurRadius: 40,
+                    offset: const Offset(0, 16),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(colors: [_accent, _accentEnd]),
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          isEdit ? Icons.edit_rounded : Icons.add_circle_rounded,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          isEdit ? "Chỉnh sửa món ăn" : "Thêm món mới",
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Form
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: Form(
+                        key: formKey,
+                        child: Column(
+                          children: [
+                            _dialogField(
+                              controller: nameCtrl,
+                              label: "Tên món",
+                              icon: Icons.restaurant_menu_rounded,
+                              validator: (v) =>
+                              v == null || v.trim().isEmpty ? "Vui lòng nhập tên món" : null,
+                            ),
+                            const SizedBox(height: 16),
+                            _dialogField(
+                              controller: priceCtrl,
+                              label: "Giá (đ)",
+                              icon: Icons.payments_rounded,
+                              keyboardType: TextInputType.number,
+                              validator: (v) =>
+                              v == null || v.trim().isEmpty ? "Vui lòng nhập giá" : null,
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Category dropdown
+                            DropdownButtonFormField<String>(
+                              value: selectedCategoryId,
+                              decoration: InputDecoration(
+                                labelText: "Danh mục",
+                                labelStyle: const TextStyle(color: _textMuted, fontSize: 13),
+                                prefixIcon: const Icon(Icons.category_rounded, color: _textMuted, size: 20),
+                                filled: true,
+                                fillColor: _bg,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: const BorderSide(color: _border),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: const BorderSide(color: _border),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: const BorderSide(color: _accent, width: 1.5),
+                                ),
+                              ),
+                              dropdownColor: _surface,
+                              style: const TextStyle(color: _text, fontSize: 15),
+                              items: context
+                                  .read<FoodProvider>()
+                                  .categories
+                                  .where((cat) => cat.id != 'all')
+                                  .map((food_category.Category cat) => DropdownMenuItem(
+                                value: cat.id,
+                                child: Text(cat.name, style: const TextStyle(color: _text)),
+                              ))
+                                  .toList(),
+                              onChanged: (value) {
+                                if (value != null) setState(() => selectedCategoryId = value);
+                              },
+                              validator: (value) =>
+                              value == null ? "Vui lòng chọn danh mục" : null,
+                            ),
+                            const SizedBox(height: 16),
+
+                            // ── Chọn ảnh ──
+                            GestureDetector(
+                              onTap: pickImage,
+                              child: Container(
+                                height: 160,
+                                width: double.infinity,
+                                decoration: BoxDecoration(
+                                  color: _bg,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: _border),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: pickedImageFile != null
+                                // Ảnh mới chọn từ gallery
+                                    ? Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    Image.file(pickedImageFile!, fit: BoxFit.cover),
+                                    Positioned(
+                                      bottom: 8,
+                                      right: 8,
+                                      child: _changePhotoBadge(),
+                                    ),
+                                  ],
+                                )
+                                    : currentImageUrl.isNotEmpty
+                                // Ảnh cũ (base64 hoặc network)
+                                    ? Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    _buildImage(currentImageUrl),
+                                    Positioned(
+                                      bottom: 8,
+                                      right: 8,
+                                      child: _changePhotoBadge(),
+                                    ),
+                                  ],
+                                )
+                                // Chưa có ảnh
+                                    : const Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.add_photo_alternate_rounded,
+                                        color: _textMuted, size: 40),
+                                    SizedBox(height: 8),
+                                    Text('Nhấn để chọn ảnh',
+                                        style: TextStyle(color: _textMuted, fontSize: 13)),
+                                    SizedBox(height: 4),
+                                    Text('từ thư viện điện thoại',
+                                        style: TextStyle(color: _textMuted, fontSize: 12)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            _dialogField(
+                              controller: descCtrl,
+                              label: "Mô tả",
+                              icon: Icons.notes_rounded,
+                              maxLines: 3,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Actions
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              side: const BorderSide(color: _border),
+                              foregroundColor: _textMuted,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            child: const Text("Hủy",
+                                style: TextStyle(fontWeight: FontWeight.w600)),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [_accent, _accentEnd]),
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: _accent.withValues(alpha: 0.4),
+                                  blurRadius: 16,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
+                            ),
+                            child: ElevatedButton(
+                              onPressed: dialogLoading
+                                  ? null
+                                  : () async {
+                                if (!formKey.currentState!.validate()) return;
+                                setState(() => dialogLoading = true);
+
+                                final foodId = food?.id ??
+                                    'food_${DateTime.now().millisecondsSinceEpoch}';
+
+                                // ── Encode ảnh sang Base64 nếu có chọn mới ──
+                                String finalImageUrl = currentImageUrl;
+                                if (pickedImageFile != null) {
+                                  final encoded =
+                                  await _encodeImageToBase64(pickedImageFile!);
+                                  if (encoded != null) {
+                                    finalImageUrl = encoded;
+                                  } else {
+                                    if (!context.mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Không thể xử lý ảnh, vui lòng thử lại'),
+                                        backgroundColor: _danger,
+                                      ),
+                                    );
+                                    setState(() => dialogLoading = false);
+                                    return;
+                                  }
+                                }
+
+                                final provider = context.read<FoodProvider>();
+                                final newFood = FoodItem(
+                                  id: foodId,
+                                  name: nameCtrl.text.trim(),
+                                  description: descCtrl.text.trim(),
+                                  price: double.tryParse(priceCtrl.text) ?? 0,
+                                  imageUrl: finalImageUrl,
+                                  categoryId: selectedCategoryId,
+                                  rating: food?.rating ?? 4.5,
+                                  reviewCount: food?.reviewCount ?? 0,
+                                  prepTimeMinutes: food?.prepTimeMinutes ?? 15,
+                                  isPopular: food?.isPopular ?? false,
+                                  tags: food?.tags ?? [],
+                                );
+
+                                final error = isEdit
+                                    ? await provider.updateFood(newFood)
+                                    : await provider.addFood(newFood);
+
+                                if (!context.mounted) return;
+                                setState(() => dialogLoading = false);
+                                if (error != null) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                        content: Text(error),
+                                        backgroundColor: _danger),
+                                  );
+                                  return;
+                                }
+                                Navigator.pop(context);
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              child: dialogLoading
+                                  ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.white),
+                              )
+                                  : Text(
+                                isEdit ? "Lưu thay đổi" : "Thêm món",
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w700, color: Colors.white),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ─── Badge "Đổi ảnh" ───────────────────────────────────────
+  Widget _changePhotoBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.edit_rounded, color: Colors.white, size: 13),
+          SizedBox(width: 4),
+          Text('Đổi ảnh', style: TextStyle(color: Colors.white, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
+  // ─── Delete confirm dialog ─────────────────────────────────
+  void showDeleteDialog(FoodItem food) {
+    var deleteLoading = false;
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.7),
+      builder: (_) => StatefulBuilder(
+        builder: (context, setDialogState) => Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
           child: Container(
+            padding: const EdgeInsets.all(28),
             decoration: BoxDecoration(
               color: _surface,
               borderRadius: BorderRadius.circular(24),
               border: Border.all(color: _border, width: 1.2),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.5),
-                  blurRadius: 40,
-                  offset: const Offset(0, 16),
-                ),
-              ],
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Header
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [_accent, _accentEnd],
-                    ),
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: _danger.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
                   ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        isEdit ? Icons.edit_rounded : Icons.add_circle_rounded,
-                        color: Colors.white,
-                        size: 22,
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        isEdit ? "Chỉnh sửa món ăn" : "Thêm món mới",
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
+                  child: const Icon(Icons.delete_forever_rounded,
+                      color: _danger, size: 32),
                 ),
-
-                // Form
-                Flexible(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(24),
-                    child: Form(
-                      key: formKey,
-                      child: Column(
-                        children: [
-                          _dialogField(
-                            controller: nameCtrl,
-                            label: "Tên món",
-                            icon: Icons.restaurant_menu_rounded,
-                            validator: (v) =>
-                                v == null || v.trim().isEmpty ? "Vui lòng nhập tên món" : null,
-                          ),
-                          const SizedBox(height: 16),
-                          _dialogField(
-                            controller: priceCtrl,
-                            label: "Giá (đ)",
-                            icon: Icons.payments_rounded,
-                            keyboardType: TextInputType.number,
-                            validator: (v) =>
-                                v == null || v.trim().isEmpty ? "Vui lòng nhập giá" : null,
-                          ),
-                          const SizedBox(height: 16),
-                          // Category dropdown
-                          DropdownButtonFormField<String>(
-                            value: selectedCategoryId,
-                            decoration: InputDecoration(
-                              labelText: "Danh mục",
-                              labelStyle: const TextStyle(color: _textMuted, fontSize: 13),
-                              prefixIcon: const Icon(Icons.category_rounded, color: _textMuted, size: 20),
-                              filled: true,
-                              fillColor: _bg,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: _border),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: _border),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: _accent, width: 1.5),
-                              ),
-                            ),
-                            dropdownColor: _surface,
-                            style: const TextStyle(color: _text, fontSize: 15),
-                            items: context.read<FoodProvider>().categories
-                                .where((cat) => cat.id != 'all') // Exclude 'Tất cả'
-                                .map((food_category.Category cat) => DropdownMenuItem(
-                                      value: cat.id,
-                                      child: Text(cat.name, style: const TextStyle(color: _text)),
-                                    ))
-                                .toList(),
-                            onChanged: (value) {
-                              if (value != null) {
-                                setState(() {
-                                  selectedCategoryId = value;
-                                });
-                              }
-                            },
-                            validator: (value) =>
-                                value == null ? "Vui lòng chọn danh mục" : null,
-                          ),
-                          const SizedBox(height: 16),
-                          _dialogField(
-                            controller: imageCtrl,
-                            label: "Link ảnh",
-                            icon: Icons.image_rounded,
-                          ),
-                          const SizedBox(height: 16),
-                          _dialogField(
-                            controller: descCtrl,
-                            label: "Mô tả",
-                            icon: Icons.notes_rounded,
-                            maxLines: 3,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                const SizedBox(height: 16),
+                const Text(
+                  "Xóa món ăn?",
+                  style: TextStyle(
+                      color: _text, fontSize: 20, fontWeight: FontWeight.w700),
                 ),
-
-              // Actions
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-                child: Row(
+                const SizedBox(height: 8),
+                Text(
+                  "Bạn có chắc muốn xóa \"${food.name}\"?\nHành động này không thể hoàn tác.",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      color: _textMuted, fontSize: 14, height: 1.5),
+                ),
+                const SizedBox(height: 24),
+                Row(
                   children: [
                     Expanded(
                       child: OutlinedButton(
@@ -188,227 +488,65 @@ class _AdminFoodScreenState extends State<AdminFoodScreen> {
                             borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                        child: const Text("Hủy", style: TextStyle(fontWeight: FontWeight.w600)),
+                        child: const Text("Hủy",
+                            style: TextStyle(fontWeight: FontWeight.w600)),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(colors: [_accent, _accentEnd]),
-                          borderRadius: BorderRadius.circular(14),
-                          boxShadow: [
-                            BoxShadow(
-                              color: _accent.withValues(alpha: 0.4),
-                              blurRadius: 16,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: ElevatedButton(
-                          onPressed: dialogLoading
-                              ? null
-                              : () async {
-                                  if (!formKey.currentState!.validate()) {
-                                    return;
-                                  }
-                                  setState(() => dialogLoading = true);
-                                  final provider =
-                                      context.read<FoodProvider>();
-                                  final newFood = FoodItem(
-                                    id: food?.id ??
-                                        'food_${DateTime.now().millisecondsSinceEpoch}',
-                                    name: nameCtrl.text.trim(),
-                                    description: descCtrl.text.trim(),
-                                    price:
-                                        double.tryParse(priceCtrl.text) ?? 0,
-                                    imageUrl: imageCtrl.text.trim(),
-                                    categoryId: selectedCategoryId,
-                                    rating: food?.rating ?? 4.5,
-                                    reviewCount: food?.reviewCount ?? 0,
-                                    prepTimeMinutes:
-                                        food?.prepTimeMinutes ?? 15,
-                                    isPopular: food?.isPopular ?? false,
-                                    tags: food?.tags ?? [],
-                                  );
-                                  final error = isEdit
-                                      ? await provider.updateFood(newFood)
-                                      : await provider.addFood(newFood);
-                                  if (!context.mounted) return;
-                                  setState(() => dialogLoading = false);
-                                  if (error != null) {
-                                    ScaffoldMessenger.of(context)
-                                        .showSnackBar(
-                                      SnackBar(
-                                        content: Text(error),
-                                        backgroundColor: _danger,
-                                      ),
-                                    );
-                                    return;
-                                  }
-                                  Navigator.pop(context);
-                                },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            shadowColor: Colors.transparent,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
+                      child: ElevatedButton(
+                        onPressed: deleteLoading
+                            ? null
+                            : () async {
+                          setDialogState(() => deleteLoading = true);
+                          final error = await context
+                              .read<FoodProvider>()
+                              .deleteFood(food.id);
+                          if (!context.mounted) return;
+                          if (error != null) {
+                            setDialogState(() => deleteLoading = false);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                  content: Text(error),
+                                  backgroundColor: _danger),
+                            );
+                            return;
+                          }
+                          Navigator.pop(context);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _danger,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
                           ),
-                          child: dialogLoading
-                              ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : Text(
-                                  isEdit ? "Lưu thay đổi" : "Thêm món",
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white,
-                                  ),
-                                ),
                         ),
+                        child: deleteLoading
+                            ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
+                            : const Text("Xóa",
+                            style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white)),
                       ),
                     ),
                   ],
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
       ),
     );
   }
 
-  // ─── Delete confirm dialog ──────────────────────────────────
-  void showDeleteDialog(FoodItem food) {
-    var deleteLoading = false;
-
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.7),
-      builder: (_) => StatefulBuilder(
-        builder: (context, setDialogState) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.all(28),
-          decoration: BoxDecoration(
-            color: _surface,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: _border, width: 1.2),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: _danger.withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.delete_forever_rounded, color: _danger, size: 32),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                "Xóa món ăn?",
-                style: TextStyle(
-                  color: _text,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                "Bạn có chắc muốn xóa \"${food.name}\"?\nHành động này không thể hoàn tác.",
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: _textMuted, fontSize: 14, height: 1.5),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        side: const BorderSide(color: _border),
-                        foregroundColor: _textMuted,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      child: const Text("Hủy", style: TextStyle(fontWeight: FontWeight.w600)),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: deleteLoading
-                          ? null
-                          : () async {
-                              setDialogState(() => deleteLoading = true);
-                              final error = await context
-                                  .read<FoodProvider>()
-                                  .deleteFood(food.id);
-                              if (!context.mounted) return;
-                              if (error != null) {
-                                setDialogState(() => deleteLoading = false);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(error),
-                                    backgroundColor: _danger,
-                                  ),
-                                );
-                                return;
-                              }
-                              Navigator.pop(context);
-                            },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _danger,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      child: deleteLoading
-                          ? const SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Text(
-                              "Xóa",
-                              style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white),
-                            ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-      ),
-    );
-  }
-
-  // ─── Helper: dialog text field ──────────────────────────────
+  // ─── Helper: dialog text field ─────────────────────────────
   Widget _dialogField({
     required TextEditingController controller,
     required String label,
@@ -451,7 +589,7 @@ class _AdminFoodScreenState extends State<AdminFoodScreen> {
     );
   }
 
-  // ─── Build ──────────────────────────────────────────────────
+  // ─── Build ─────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final foodProvider = context.watch<FoodProvider>();
@@ -467,10 +605,7 @@ class _AdminFoodScreenState extends State<AdminFoodScreen> {
         title: const Text(
           "Quản lý món ăn",
           style: TextStyle(
-            color: _text,
-            fontWeight: FontWeight.w700,
-            fontSize: 18,
-          ),
+              color: _text, fontWeight: FontWeight.w700, fontSize: 18),
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
@@ -487,7 +622,8 @@ class _AdminFoodScreenState extends State<AdminFoodScreen> {
             ),
             child: Text(
               "${foods.length} món",
-              style: const TextStyle(color: _accent, fontSize: 12, fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                  color: _accent, fontSize: 12, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -499,15 +635,14 @@ class _AdminFoodScreenState extends State<AdminFoodScreen> {
         foregroundColor: Colors.white,
         elevation: 8,
         icon: const Icon(Icons.add_rounded),
-        label: const Text("Thêm món", style: TextStyle(fontWeight: FontWeight.w700)),
+        label: const Text("Thêm món",
+            style: TextStyle(fontWeight: FontWeight.w700)),
       ),
 
       body: Stack(
         children: [
           if (foodProvider.isLoading)
-            const Center(
-              child: CircularProgressIndicator(color: _accent),
-            )
+            const Center(child: CircularProgressIndicator(color: _accent))
           else if (foods.isEmpty)
             Center(
               child: Column(
@@ -516,10 +651,8 @@ class _AdminFoodScreenState extends State<AdminFoodScreen> {
                   Icon(Icons.restaurant_menu_rounded,
                       size: 72, color: _textMuted.withValues(alpha: 0.4)),
                   const SizedBox(height: 16),
-                  const Text(
-                    "Chưa có món ăn nào",
-                    style: TextStyle(color: _textMuted, fontSize: 16),
-                  ),
+                  const Text("Chưa có món ăn nào",
+                      style: TextStyle(color: _textMuted, fontSize: 16)),
                 ],
               ),
             )
@@ -537,6 +670,7 @@ class _AdminFoodScreenState extends State<AdminFoodScreen> {
                 final food = foods[index];
                 return _FoodCard(
                   food: food,
+                  buildImage: _buildImage,
                   onEdit: () => showFoodDialog(food: food),
                   onDelete: () => showDeleteDialog(food),
                 );
@@ -546,8 +680,7 @@ class _AdminFoodScreenState extends State<AdminFoodScreen> {
             Container(
               color: Colors.black.withValues(alpha: 0.35),
               child: const Center(
-                child: CircularProgressIndicator(color: _accent),
-              ),
+                  child: CircularProgressIndicator(color: _accent)),
             ),
         ],
       ),
@@ -558,11 +691,13 @@ class _AdminFoodScreenState extends State<AdminFoodScreen> {
 // ─── Food Card ────────────────────────────────────────────────
 class _FoodCard extends StatelessWidget {
   final FoodItem food;
+  final Widget Function(String, {BoxFit fit, Widget? errorWidget}) buildImage;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   const _FoodCard({
     required this.food,
+    required this.buildImage,
     required this.onEdit,
     required this.onDelete,
   });
@@ -596,16 +731,16 @@ class _FoodCard extends StatelessWidget {
           Stack(
             children: [
               ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(19)),
+                borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(19)),
                 child: AspectRatio(
                   aspectRatio: 1.1,
-                  child: Image.network(
+                  child: buildImage(
                     food.imageUrl,
-                    width: double.infinity,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
+                    errorWidget: Container(
                       color: const Color(0xFF0F172A),
-                      child: const Icon(Icons.broken_image_rounded,
+                      child: const Icon(Icons.restaurant_menu_rounded,
                           color: _textMuted, size: 40),
                     ),
                   ),
@@ -616,7 +751,8 @@ class _FoodCard extends StatelessWidget {
                 top: 8,
                 right: 8,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                   decoration: BoxDecoration(
                     color: Colors.black.withValues(alpha: 0.65),
                     borderRadius: BorderRadius.circular(20),
@@ -624,15 +760,15 @@ class _FoodCard extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.star_rounded, color: Color(0xFFFBBF24), size: 12),
+                      const Icon(Icons.star_rounded,
+                          color: Color(0xFFFBBF24), size: 12),
                       const SizedBox(width: 3),
                       Text(
                         food.rating.toStringAsFixed(1),
                         style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600),
                       ),
                     ],
                   ),
@@ -653,20 +789,18 @@ class _FoodCard extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      color: _text,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                      height: 1.3,
-                    ),
+                        color: _text,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        height: 1.3),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     "${food.price.toInt().toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')} đ",
                     style: const TextStyle(
-                      color: Color(0xFF34D399),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                    ),
+                        color: Color(0xFF34D399),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13),
                   ),
                   const Spacer(),
                   // Action buttons
@@ -732,10 +866,9 @@ class _ActionBtn extends StatelessWidget {
             Text(
               label,
               style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700),
             ),
           ],
         ),
