@@ -39,7 +39,7 @@ class _AdminOrderScreenState extends State<AdminOrderScreen>
     OrderStatus.pending,
     OrderStatus.confirmed,
     OrderStatus.preparing,
-    OrderStatus.delivered,
+    OrderStatus.completed,
   ];
 
   static const _tabLabels = [
@@ -160,7 +160,7 @@ class _AdminOrderScreenState extends State<AdminOrderScreen>
       (_colorPending,   Icons.hourglass_top_rounded,  'Chờ',      _countOf(OrderStatus.pending)),
       (_colorConfirmed, Icons.check_circle_rounded,    'Đã nhận',  _countOf(OrderStatus.confirmed)),
       (_colorPreparing, Icons.restaurant_rounded,      'Đang làm', _countOf(OrderStatus.preparing)),
-      (_colorDone,      Icons.done_all_rounded,        'Xong',     _countOf(OrderStatus.delivered)),
+      (_colorDone, Icons.done_all_rounded,                'Xong', _countOf(OrderStatus.completed)),
     ];
 
     return Container(
@@ -260,7 +260,7 @@ class _AdminOrderScreenState extends State<AdminOrderScreen>
       case OrderStatus.pending:   return _colorPending;
       case OrderStatus.confirmed: return _colorConfirmed;
       case OrderStatus.preparing: return _colorPreparing;
-      case OrderStatus.delivered: return _colorDone;
+      case OrderStatus.completed: return _colorDone;
       default:                    return _accent;
     }
   }
@@ -320,7 +320,7 @@ class _OrderList extends StatelessWidget {
       case OrderStatus.pending:   return '🕐';
       case OrderStatus.confirmed: return '✅';
       case OrderStatus.preparing: return '👨‍🍳';
-      case OrderStatus.delivered: return '🎉';
+      case OrderStatus.completed: return '🎉';
       default:                    return '📋';
     }
   }
@@ -330,7 +330,7 @@ class _OrderList extends StatelessWidget {
       case OrderStatus.pending:   return 'Không có đơn chờ xác nhận';
       case OrderStatus.confirmed: return 'Không có đơn đã nhận';
       case OrderStatus.preparing: return 'Không có đơn đang chuẩn bị';
-      case OrderStatus.delivered: return 'Chưa có đơn hoàn thành';
+      case OrderStatus.completed: return 'Chưa có đơn hoàn thành';
       default:                    return 'Không có đơn hàng';
     }
   }
@@ -365,7 +365,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
       case OrderStatus.pending:   return const Color(0xFFF59E0B);
       case OrderStatus.confirmed: return const Color(0xFF3B82F6);
       case OrderStatus.preparing: return const Color(0xFFA855F7);
-      case OrderStatus.delivered: return const Color(0xFF10B981);
+      case OrderStatus.completed: return const Color(0xFF10B981);
       default:                    return const Color(0xFF94A3B8);
     }
   }
@@ -375,7 +375,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
       case OrderStatus.pending:   return Icons.hourglass_top_rounded;
       case OrderStatus.confirmed: return Icons.check_circle_rounded;
       case OrderStatus.preparing: return Icons.restaurant_rounded;
-      case OrderStatus.delivered: return Icons.done_all_rounded;
+      case OrderStatus.completed: return Icons.done_all_rounded;
       default:                    return Icons.info_rounded;
     }
   }
@@ -433,7 +433,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
   @override
   Widget build(BuildContext context) {
     final order = widget.order;
-    final isDone = order.status == OrderStatus.delivered;
+    final isDone = order.status == OrderStatus.completed;
     final isPreparing = order.status == OrderStatus.preparing;
 
     return AnimatedContainer(
@@ -567,7 +567,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
               child: isPreparing
                   ? _SlideToComplete(
                       onCompleted: () => widget.onUpdateStatus(
-                          order, OrderStatus.delivered),
+                          order, OrderStatus.completed),
                     )
                   : _buildAdvanceButton(),
             ),
@@ -680,7 +680,7 @@ class _AdminOrderCardState extends State<_AdminOrderCard> {
       (OrderStatus.pending,   'Chờ',    Icons.hourglass_top_rounded),
       (OrderStatus.confirmed, 'Nhận',   Icons.check_circle_rounded),
       (OrderStatus.preparing, 'Làm',    Icons.restaurant_rounded),
-      (OrderStatus.delivered, 'Xong',   Icons.done_all_rounded),
+      (OrderStatus.completed, 'Xong',   Icons.done_all_rounded),
     ];
 
     final currentIdx = steps.indexWhere((s) => s.$1 == current);
