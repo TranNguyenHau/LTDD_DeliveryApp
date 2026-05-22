@@ -13,11 +13,12 @@ import 'screens/login.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'data/seed_data.dart';
-
+import 'providers/account_provider.dart';
 void main() async {
+  // 1. Đưa cái này lên đầu tiên để đảm bảo các dịch vụ hệ thống sẵn sàng
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Khóa hướng màn hình (tuỳ chọn - xoá nếu app hỗ trợ landscape)
+  // Khóa hướng màn hình
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
@@ -36,11 +37,17 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  // Chạy app trước → UI hiện ngay, không bị màn hình trắng
-  runApp(const MyApp());
+  // 2. BỌC CÁC PROVIDER XUNG QUANH MYAPP() Ở ĐÂY
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AccountProvider()),
+      ],
+      child: const MyApp(),
+    ),
+  );
 
   // Seed dữ liệu chạy ngầm sau khi UI đã render
-  // Không await ở đây để tránh block main thread
   seedAll().catchError((e) {
     debugPrint('Seed error: $e');
   });
