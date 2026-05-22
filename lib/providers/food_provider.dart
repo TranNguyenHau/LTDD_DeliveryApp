@@ -157,6 +157,13 @@ class FoodProvider with ChangeNotifier {
     }
   }
 
+  void clear() {
+    _selectedCategoryId = 'all';
+    _searchQuery = '';
+    _errorMessage = null;
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _foodsSub?.cancel();

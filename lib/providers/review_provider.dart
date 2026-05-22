@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import '../constants/firestore_collections.dart';
 import '../models/order.dart';
 import '../models/review.dart';
+import 'notification_provider.dart';
 
 class ReviewProvider with ChangeNotifier {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -16,13 +17,20 @@ class ReviewProvider with ChangeNotifier {
   List<Review> _reviews = [];
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _reviewsSub;
 
+  // Admin side
+  List<Review> _allReviews = [];
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _allReviewsSub;
+  bool _isReplying = false;
+
   bool _isLoading = false;
   bool _isSubmitting = false;
   String? _errorMessage;
 
   List<Review> get reviews => List.unmodifiable(_reviews);
+  List<Review> get allReviews => List.unmodifiable(_allReviews);
   bool get isLoading => _isLoading;
   bool get isSubmitting => _isSubmitting;
+  bool get isReplying => _isReplying;
   String? get errorMessage => _errorMessage;
 
   /// Rating trung bình từ danh sách đánh giá hiện tại
@@ -65,7 +73,86 @@ class ReviewProvider with ChangeNotifier {
     );
   }
 
-  /// User đã đánh giá món này chưa
+  /// Lắng nghe TẤT CẢ đánh giá (cho Admin)
+  Future<void> loadAllReviews() async {
+    if (_allReviewsSub != null) return;
+
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    _allReviewsSub = _db
+        .collection(FirestoreCollections.reviews)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .listen(
+      (snap) {
+        _allReviews = snap.docs.map((d) => Review.fromMap(d.data())).toList();
+        _isLoading = false;
+        notifyListeners();
+      },
+      onError: (e) {
+        _isLoading = false;
+        _errorMessage = 'Không tải được danh sách đánh giá: $e';
+        notifyListeners();
+      },
+    );
+  }
+
+  /// Admin phản hồi đánh giá và thông báo cho người dùng
+  Future<String?> replyToReview(String reviewId, String replyText) async {
+    _isReplying = true;
+    notifyListeners();
+
+    try {
+      // 1. Lấy thông tin đánh giá để lấy userId
+      final reviewDoc = await _db
+          .collection(FirestoreCollections.reviews)
+          .doc(reviewId)
+          .get();
+
+      if (!reviewDoc.exists) return 'Không tìm thấy đánh giá';
+
+      final review = Review.fromMap(reviewDoc.data()!);
+
+      // 2. Cập nhật phản hồi của admin
+      await _db.collection(FirestoreCollections.reviews).doc(reviewId).update({
+        'adminReply': replyText.trim(),
+        'adminReplyAt': DateTime.now().toIso8601String(),
+      });
+
+      // 3. Tạo thông báo cho người dùng
+      await NotificationProvider.createNotification(
+        userId: review.userId,
+        type: 'admin_reply',
+        title: 'Nhà hàng vừa phản hồi đánh giá của bạn 💬',
+        body: replyText.trim(),
+        reviewId: reviewId,
+      );
+
+      return null;
+    } catch (e) {
+      return 'Không thể gửi phản hồi: $e';
+    } finally {
+      _isReplying = false;
+      notifyListeners();
+    }
+  }
+
+  /// Kiểm tra user đã đánh giá món cụ thể chưa (truy vấn trực tiếp)
+  Future<bool> hasUserReviewedFood(String userId, String foodId) async {
+    try {
+      final doc = await _db
+          .collection(FirestoreCollections.reviews)
+          .doc('${userId}_$foodId')
+          .get();
+      return doc.exists;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// User đã đánh giá món này chưa (từ list đang load)
   bool hasUserReviewed(String userId) {
     return _reviews.any((r) => r.userId == userId);
   }
@@ -91,6 +178,7 @@ class ReviewProvider with ChangeNotifier {
     required String userId,
     required String userName,
     required String foodId,
+    required String foodName,
     required int rating,
     required String comment,
   }) async {
@@ -110,6 +198,7 @@ class ReviewProvider with ChangeNotifier {
         id: reviewId,
         userId: userId,
         foodId: foodId,
+        foodName: foodName,
         rating: rating,
         comment: comment.trim(),
         createdAt: DateTime.now(),
@@ -154,11 +243,15 @@ class ReviewProvider with ChangeNotifier {
 
   Future<void> clear() async {
     await _reviewsSub?.cancel();
+    await _allReviewsSub?.cancel();
     _reviewsSub = null;
+    _allReviewsSub = null;
     _foodId = null;
     _reviews = [];
+    _allReviews = [];
     _isLoading = false;
     _isSubmitting = false;
+    _isReplying = false;
     _errorMessage = null;
     notifyListeners();
   }
@@ -166,6 +259,7 @@ class ReviewProvider with ChangeNotifier {
   @override
   void dispose() {
     _reviewsSub?.cancel();
+    _allReviewsSub?.cancel();
     super.dispose();
   }
 }

@@ -1,14 +1,18 @@
 // lib/screens/home_screen.dart
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/category.dart' as food_category;
 import '../providers/food_provider.dart';
+import '../providers/notification_provider.dart';
 import '../widgets/food_card.dart';
 import '../widgets/category_chip.dart';
 import '../widgets/cart_badge.dart';
+import '../widgets/notification_badge.dart';
 import 'food_detail_screen.dart';
 import 'cart_screen.dart';
+import 'notification_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -19,6 +23,17 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        context.read<NotificationProvider>().loadNotifications(uid);
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -71,6 +86,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                     ),
+                    NotificationBadge(
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const NotificationScreen(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
                     CartBadge(
                         onTap: () => Navigator.push(
                             context,

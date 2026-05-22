@@ -54,6 +54,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
           userId: uid,
           userName: userName,
           foodId: widget.food.id,
+          foodName: widget.food.name,
           rating: _selectedRating,
           comment: _commentCtrl.text,
         );
@@ -321,6 +322,38 @@ class _ReviewTile extends StatelessWidget {
             Text(review.comment, style: TextStyle(color: Colors.grey[800])),
           const SizedBox(height: 4),
           Text(dateStr, style: TextStyle(color: Colors.grey[500], fontSize: 11)),
+
+          if (review.adminReply != null && review.adminReply!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF3E0),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFFFE0B2)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.storefront_outlined,
+                          size: 14, color: Color(0xFFFF6B00)),
+                      SizedBox(width: 6),
+                      Text("Phản hồi từ nhà hàng",
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFFFF6B00))),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(review.adminReply!,
+                      style: const TextStyle(fontSize: 13)),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

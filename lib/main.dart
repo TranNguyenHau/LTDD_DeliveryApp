@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'providers/cart_provider.dart';
 import 'providers/coupon_provider.dart';
 import 'providers/food_provider.dart';
+import 'providers/notification_provider.dart';
 import 'providers/order_provider.dart';
 import 'providers/profile_provider.dart';
 import 'providers/review_provider.dart';
@@ -60,6 +61,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ProfileProvider()),
         ChangeNotifierProvider(create: (_) => ReviewProvider()),
         ChangeNotifierProvider(create: (_) => CouponProvider()),
+        ChangeNotifierProvider(create: (_) => NotificationProvider()),
       ],
       child: MaterialApp(
         title: 'FoodApp',

@@ -1,13 +1,15 @@
 // lib/screens/RegisterScreen.dart
-// 2-step registration: (1) Username + Password → (2) Phone number
+// 2-step registration: (1) Email + Password → (2) Full Name + Phone
 // Inspired by ShopeeFood / GrabFood onboarding flow
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
-import 'package:food_app/services/auth_service.dart';
-import 'package:food_app/providers/profile_provider.dart';
+import '../services/auth_service.dart';
+import '../providers/profile_provider.dart';
+import '../providers/order_provider.dart';
+import 'main_shell.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -30,7 +32,7 @@ class _RegisterScreenState extends State<RegisterScreen>
 
   // ─── Step 1 ──────────────────────────────────────────────
   final _step1Key = GlobalKey<FormState>();
-  final _usernameCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
   bool _hidePassword = true;
@@ -38,10 +40,11 @@ class _RegisterScreenState extends State<RegisterScreen>
 
   // ─── Step 2 ──────────────────────────────────────────────
   final _step2Key = GlobalKey<FormState>();
+  final _fullNameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
 
   // ─── State ───────────────────────────────────────────────
-  int _currentStep = 0; // 0 = account info, 1 = phone number
+  int _currentStep = 0; // 0 = account info, 1 = personal info
   bool _isLoading = false;
   String? _registeredUserId; // UID sau khi đăng ký xong bước 1
 
@@ -70,7 +73,8 @@ class _RegisterScreenState extends State<RegisterScreen>
   void dispose() {
     _pageCtrl.dispose();
     _progressCtrl.dispose();
-    _usernameCtrl.dispose();
+    _emailCtrl.dispose();
+    _fullNameCtrl.dispose();
     _passwordCtrl.dispose();
     _confirmCtrl.dispose();
     _phoneCtrl.dispose();
@@ -84,7 +88,7 @@ class _RegisterScreenState extends State<RegisterScreen>
 
     try {
       final account = await AuthService().register(
-        username: _usernameCtrl.text.trim(),
+        email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
       );
       _registeredUserId = account.id;
@@ -98,9 +102,8 @@ class _RegisterScreenState extends State<RegisterScreen>
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      final msg = (e.code == 'username-already-in-use' ||
-              e.code == 'email-already-in-use')
-          ? 'Username đã tồn tại, vui lòng chọn tên khác'
+      final msg = (e.code == 'email-already-in-use')
+          ? 'Email đã tồn tại, vui lòng chọn email khác'
           : (e.message ?? 'Đăng ký thất bại');
       _showSnack(msg, isError: true);
     } catch (e) {
@@ -110,44 +113,49 @@ class _RegisterScreenState extends State<RegisterScreen>
     }
   }
 
-  // ─── Step 2: Lưu số điện thoại ───────────────────────────
-  Future<void> _savePhone() async {
+  // ─── Step 2: Lưu thông tin cá nhân ───────────────────────
+  Future<void> _saveProfile() async {
     if (!_step2Key.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
     try {
-      // Lưu phone vào Firestore thông qua ProfileProvider
-      final profileProvider = context.read<ProfileProvider>();
-
-      // Bind user nếu chưa bind
       if (_registeredUserId != null) {
-        await profileProvider.bindUser(_registeredUserId!);
-        await profileProvider.updateProfile(
-          fullName: _usernameCtrl.text.trim(),
-          phone: _phoneCtrl.text.trim(),
-          address: '',
-        );
+        // 1. Bind và cập nhật Profile + Order Provider
+        await Future.wait([
+          context.read<ProfileProvider>().bindUser(
+                _registeredUserId!,
+                email: _emailCtrl.text.trim(),
+                fullName: _fullNameCtrl.text.trim(),
+              ),
+          context.read<OrderProvider>().bindUser(_registeredUserId!),
+        ]);
+
+        // 2. Cập nhật Firestore profile với data đầy đủ
+        await context.read<ProfileProvider>().updateProfile(
+              fullName: _fullNameCtrl.text.trim(),
+              phone: _phoneCtrl.text.trim(),
+              address: '',
+            );
       }
 
       if (!mounted) return;
       setState(() => _isLoading = false);
 
-      _showSnack('Đăng ký thành công! Hãy đăng nhập.', isError: false);
+      _showSnack('Đăng ký thành công!', isError: false);
       await Future.delayed(const Duration(milliseconds: 800));
-      if (mounted) Navigator.pop(context);
+      
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const MainShell()),
+          (route) => false,
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
       _showSnack('Lỗi lưu thông tin: $e', isError: true);
     }
-  }
-
-  // ─── Skip số điện thoại ──────────────────────────────────
-  Future<void> _skipPhone() async {
-    _showSnack('Bạn có thể cập nhật số điện thoại sau trong phần Hồ sơ',
-        isError: false);
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (mounted) Navigator.pop(context);
   }
 
   void _showSnack(String message, {required bool isError}) {
@@ -250,7 +258,7 @@ class _RegisterScreenState extends State<RegisterScreen>
               Text(
                 _currentStep == 0
                     ? 'Bước 1/2 — Thông tin đăng nhập'
-                    : 'Bước 2/2 — Số điện thoại',
+                    : 'Bước 2/2 — Thông tin cá nhân',
                 style: const TextStyle(fontSize: 12, color: _textMuted),
               ),
             ],
@@ -293,7 +301,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                           : const Color(0xFFE0E0E0),
                     ),
                   ),
-                  _stepDot(2, _currentStep >= 1, 'Số điện thoại'),
+                  _stepDot(2, _currentStep >= 1, 'Thông tin'),
                 ],
               ),
             ],
@@ -373,7 +381,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                   ],
                 ),
                 child:
-                    const Icon(Icons.person_outline, size: 36, color: Colors.white),
+                    const Icon(Icons.email_outlined, size: 36, color: Colors.white),
               ),
             ),
             const SizedBox(height: 16),
@@ -390,25 +398,23 @@ class _RegisterScreenState extends State<RegisterScreen>
             const SizedBox(height: 4),
             const Center(
               child: Text(
-                'Nhập thông tin để bắt đầu đặt món',
+                'Nhập email để bắt đầu đặt món',
                 style: TextStyle(fontSize: 13, color: _textMuted),
               ),
             ),
 
             const SizedBox(height: 28),
 
-            // Username
-            _fieldLabel('Tên đăng nhập'),
+            // Email
+            _fieldLabel('Email'),
             _inputField(
-              controller: _usernameCtrl,
-              hint: 'Ít nhất 3 ký tự',
-              icon: Icons.person_outline,
+              controller: _emailCtrl,
+              hint: 'example@email.com',
+              icon: Icons.email_outlined,
+              keyboardType: TextInputType.emailAddress,
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Vui lòng nhập username';
-                if (v.trim().length < 3) return 'Username ít nhất 3 ký tự';
-                if (RegExp(r'[^a-zA-Z0-9_]').hasMatch(v.trim())) {
-                  return 'Chỉ dùng chữ cái, số và dấu gạch dưới';
-                }
+                if (v == null || v.trim().isEmpty) return 'Vui lòng nhập email';
+                if (!v.contains('@') || !v.contains('.')) return 'Email không hợp lệ';
                 return null;
               },
             ),
@@ -498,7 +504,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     );
   }
 
-  // ─── Step 2: Số điện thoại ────────────────────────────────
+  // ─── Step 2: Thông tin cá nhân ────────────────────────────
   Widget _buildStep2({Key? key}) {
     return SingleChildScrollView(
       key: key,
@@ -530,14 +536,14 @@ class _RegisterScreenState extends State<RegisterScreen>
                     ),
                   ],
                 ),
-                child: const Icon(Icons.phone_outlined,
+                child: const Icon(Icons.person_outline,
                     size: 36, color: Colors.white),
               ),
             ),
             const SizedBox(height: 16),
             const Center(
               child: Text(
-                'Số điện thoại của bạn',
+                'Thông tin cá nhân',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w800,
@@ -555,6 +561,20 @@ class _RegisterScreenState extends State<RegisterScreen>
             ),
 
             const SizedBox(height: 32),
+
+            // Full Name
+            _fieldLabel('Họ và Tên'),
+            _inputField(
+              controller: _fullNameCtrl,
+              hint: 'Nhập họ và tên của bạn',
+              icon: Icons.person_outline,
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) return 'Vui lòng nhập họ tên';
+                if (v.trim().length < 2) return 'Họ tên quá ngắn';
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
 
             // Phone field with +84 prefix
             _fieldLabel('Số điện thoại'),
@@ -584,7 +604,6 @@ class _RegisterScreenState extends State<RegisterScreen>
                     ),
                     child: Row(
                       children: [
-                        // Vietnam flag emoji
                         const Text('🇻🇳', style: TextStyle(fontSize: 18)),
                         const SizedBox(width: 6),
                         const Text('+84',
@@ -593,9 +612,6 @@ class _RegisterScreenState extends State<RegisterScreen>
                               color: _textDark,
                               fontSize: 15,
                             )),
-                        const SizedBox(width: 4),
-                        Icon(Icons.keyboard_arrow_down,
-                            size: 16, color: _textMuted),
                       ],
                     ),
                   ),
@@ -633,66 +649,13 @@ class _RegisterScreenState extends State<RegisterScreen>
               ),
             ),
 
-            const SizedBox(height: 12),
-
-            // Info note
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFF3E0),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFFFE0B2)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline,
-                      size: 16, color: Color(0xFFFF8F00)),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Số điện thoại sẽ được dùng để giao hàng và hỗ trợ đơn hàng',
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF795548),
-                          height: 1.4),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
             const SizedBox(height: 32),
 
             // Confirm button
             _primaryButton(
               label: 'Hoàn tất đăng ký',
               icon: Icons.check_circle_outline_rounded,
-              onTap: _savePhone,
-            ),
-
-            const SizedBox(height: 14),
-
-            // Skip button
-            SizedBox(
-              width: double.infinity,
-              child: TextButton(
-                onPressed: _isLoading ? null : _skipPhone,
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    side: const BorderSide(color: _border),
-                  ),
-                ),
-                child: const Text(
-                  'Bỏ qua, thêm sau',
-                  style: TextStyle(
-                    color: _textMuted,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                  ),
-                ),
-              ),
+              onTap: _saveProfile,
             ),
           ],
         ),
