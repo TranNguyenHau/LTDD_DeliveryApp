@@ -1,17 +1,16 @@
 // lib/screens/food_detail_screen.dart
 
-import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../models/food_item.dart';
 import '../models/review.dart';
 import '../providers/cart_provider.dart';
-import '../providers/order_provider.dart';
 import '../providers/review_provider.dart';
 import '../widgets/cart_badge.dart';
 import 'cart_screen.dart';
-import 'review_screen.dart';
 
 class FoodDetailScreen extends StatefulWidget {
   final FoodItem food;
@@ -36,13 +35,48 @@ class _FoodDetailScreenState extends State<FoodDetailScreen> {
         RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.');
   }
 
+  // ─── Hiển thị ảnh theo loại: base64 / asset / network ─────
+  Widget _buildImage(String imageUrl) {
+    Widget fallback = Container(
+      color: Colors.grey[200],
+      child: const Icon(Icons.restaurant, size: 60, color: Colors.grey),
+    );
+
+    if (imageUrl.isEmpty) return fallback;
+
+    if (imageUrl.startsWith('data:image')) {
+      try {
+        final base64Data = imageUrl.split(',')[1];
+        return Image.memory(
+          base64Decode(base64Data),
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => fallback,
+        );
+      } catch (_) {
+        return fallback;
+      }
+    }
+
+    if (imageUrl.startsWith('assets/')) {
+      return Image.asset(
+        imageUrl,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback,
+      );
+    }
+
+    return Image.network(
+      imageUrl,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => fallback,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cart = context.watch<CartProvider>();
     final reviewProvider = context.watch<ReviewProvider>();
-    final orderProvider = context.watch<OrderProvider>();
     final qty = cart.quantityOf(widget.food.id);
-    final uid = FirebaseAuth.instance.currentUser?.uid;
 
     final avgRating = reviewProvider.reviewCount > 0
         ? reviewProvider.averageRating.toStringAsFixed(1)
@@ -50,13 +84,6 @@ class _FoodDetailScreenState extends State<FoodDetailScreen> {
     final reviewCount = reviewProvider.reviewCount > 0
         ? reviewProvider.reviewCount
         : widget.food.reviewCount;
-
-    final canReview = uid != null &&
-        reviewProvider.canUserReview(
-          userId: uid,
-          foodId: widget.food.id,
-          orders: orderProvider.orders,
-        );
 
     final previewReviews = reviewProvider.reviews.take(3).toList();
 
@@ -89,14 +116,7 @@ class _FoodDetailScreenState extends State<FoodDetailScreen> {
               ),
             ],
             flexibleSpace: FlexibleSpaceBar(
-              background: Image.network(
-                widget.food.imageUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
-                  color: Colors.grey[200],
-                  child: const Icon(Icons.restaurant, size: 60),
-                ),
-              ),
+              background: _buildImage(widget.food.imageUrl),
             ),
           ),
           SliverToBoxAdapter(
@@ -114,23 +134,23 @@ class _FoodDetailScreenState extends State<FoodDetailScreen> {
                       spacing: 6,
                       children: widget.food.tags
                           .map((tag) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Theme.of(context)
-                                      .primaryColor
-                                      .withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  tag,
-                                  style: TextStyle(
-                                    color: Theme.of(context).primaryColor,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ))
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .primaryColor
+                              .withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          tag,
+                          style: TextStyle(
+                            color: Theme.of(context).primaryColor,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ))
                           .toList(),
                     ),
                   const SizedBox(height: 12),
@@ -168,41 +188,32 @@ class _FoodDetailScreenState extends State<FoodDetailScreen> {
                   const SizedBox(height: 20),
                   const Text(
                     'Mô tả',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    style:
+                    TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     widget.food.description,
                     style: TextStyle(
-                        color: Colors.grey[700],
-                        fontSize: 14,
-                        height: 1.6),
+                        color: Colors.grey[700], fontSize: 14, height: 1.6),
                   ),
                   const SizedBox(height: 24),
 
                   // Đánh giá
-                  Row(
+                  const Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
+                      Text(
                         'Đánh giá',
                         style: TextStyle(
                             fontSize: 16, fontWeight: FontWeight.w600),
                       ),
-                      if (canReview)
-                        TextButton.icon(
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  ReviewScreen(food: widget.food),
-                            ),
-                          ),
-                          icon: const Icon(Icons.rate_review_outlined,
-                              size: 18),
-                          label: const Text('Đánh giá'),
-                        ),
                     ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Đánh giá từng món trong tab Lịch sử đơn hàng',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
                   ),
                   const SizedBox(height: 8),
                   if (reviewProvider.isLoading)
@@ -219,25 +230,20 @@ class _FoodDetailScreenState extends State<FoodDetailScreen> {
                   else if (previewReviews.isEmpty)
                     Text(
                       'Chưa có đánh giá',
-                      style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                      style:
+                      TextStyle(color: Colors.grey[600], fontSize: 13),
                     )
                   else ...[
-                    ...previewReviews.map(
-                      (r) => _CompactReviewTile(review: r),
-                    ),
-                    if (reviewProvider.reviewCount > 3)
-                      TextButton(
-                        onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ReviewScreen(food: widget.food),
-                          ),
-                        ),
-                        child: Text(
-                          'Xem tất cả ${reviewProvider.reviewCount} đánh giá',
-                        ),
+                      ...previewReviews.map(
+                            (r) => _CompactReviewTile(review: r),
                       ),
-                  ],
+                      if (reviewProvider.reviewCount > 3)
+                        Text(
+                          'Xem thêm trong danh sách bên dưới khi cuộn',
+                          style:
+                          TextStyle(color: Colors.grey[600], fontSize: 12),
+                        ),
+                    ],
                   const SizedBox(height: 24),
 
                   Row(
@@ -252,8 +258,8 @@ class _FoodDetailScreenState extends State<FoodDetailScreen> {
                             IconButton(
                               onPressed: qty > 0
                                   ? () => context
-                                      .read<CartProvider>()
-                                      .removeItem(widget.food.id)
+                                  .read<CartProvider>()
+                                  .removeItem(widget.food.id)
                                   : null,
                               icon: const Icon(Icons.remove),
                               iconSize: 20,
@@ -284,12 +290,13 @@ class _FoodDetailScreenState extends State<FoodDetailScreen> {
                                     'Đã thêm ${widget.food.name} vào giỏ!'),
                                 duration: const Duration(seconds: 1),
                                 backgroundColor:
-                                    Theme.of(context).primaryColor,
+                                Theme.of(context).primaryColor,
                               ),
                             );
                           },
                           style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            padding:
+                            const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(14)),
                           ),
@@ -316,8 +323,7 @@ class _FoodDetailScreenState extends State<FoodDetailScreen> {
       children: [
         Icon(icon, size: 16, color: color),
         const SizedBox(width: 4),
-        Text(label,
-            style: TextStyle(color: Colors.grey[700], fontSize: 13)),
+        Text(label, style: TextStyle(color: Colors.grey[700], fontSize: 13)),
       ],
     );
   }
@@ -351,7 +357,7 @@ class _CompactReviewTile extends StatelessWidget {
               Row(
                 children: List.generate(
                   5,
-                  (i) => Icon(
+                      (i) => Icon(
                     i < review.rating ? Icons.star : Icons.star_border,
                     size: 12,
                     color: Colors.amber,

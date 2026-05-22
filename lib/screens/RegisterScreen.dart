@@ -10,6 +10,7 @@ import '../services/auth_service.dart';
 import '../providers/profile_provider.dart';
 import '../providers/order_provider.dart';
 import 'main_shell.dart';
+import 'verify_email_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -94,11 +95,22 @@ class _RegisterScreenState extends State<RegisterScreen>
       _registeredUserId = account.id;
 
       if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-        _currentStep = 1;
-      });
-      _progressCtrl.forward();
+      setState(() => _isLoading = false);
+
+      // Bước 1 xong → xác thực email trước khi vào bước 2
+      await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => VerifyEmailScreen(
+            email: _emailCtrl.text.trim(),
+            onVerified: () {
+              if (!mounted) return;
+              setState(() => _currentStep = 1);
+              _progressCtrl.forward();
+            },
+          ),
+        ),
+      );
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);

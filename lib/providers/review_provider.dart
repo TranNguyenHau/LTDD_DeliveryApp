@@ -139,12 +139,16 @@ class ReviewProvider with ChangeNotifier {
     }
   }
 
-  /// Kiểm tra user đã đánh giá món cụ thể chưa (truy vấn trực tiếp)
-  Future<bool> hasUserReviewedFood(String userId, String foodId) async {
+  /// Kiểm tra user đã đánh giá món trong đơn hàng cụ thể chưa
+  Future<bool> hasUserReviewedFoodInOrder(
+    String userId,
+    String foodId,
+    String orderId,
+  ) async {
     try {
       final doc = await _db
           .collection(FirestoreCollections.reviews)
-          .doc('${userId}_$foodId')
+          .doc('${userId}_${orderId}_$foodId')
           .get();
       return doc.exists;
     } catch (e) {
@@ -173,10 +177,11 @@ class ReviewProvider with ChangeNotifier {
     return hasPurchasedFood(foodId, orders) && !hasUserReviewed(userId);
   }
 
-  /// Gửi đánh giá mới lên Firestore
+  /// Gửi đánh giá mới lên Firestore (1 đánh giá / món / đơn hàng)
   Future<String?> submitReview({
     required String userId,
     required String userName,
+    required String orderId,
     required String foodId,
     required String foodName,
     required int rating,
@@ -185,18 +190,20 @@ class ReviewProvider with ChangeNotifier {
     if (rating < 1 || rating > 5) {
       return 'Vui lòng chọn từ 1 đến 5 sao';
     }
-    if (hasUserReviewed(userId)) {
-      return 'Bạn đã đánh giá món này rồi';
+
+    final reviewId = '${userId}_${orderId}_$foodId';
+    if (await hasUserReviewedFoodInOrder(userId, foodId, orderId)) {
+      return 'Bạn đã đánh giá món này trong đơn hàng này rồi';
     }
 
     _isSubmitting = true;
     notifyListeners();
 
     try {
-      final reviewId = '${userId}_$foodId';
       final review = Review(
         id: reviewId,
         userId: userId,
+        orderId: orderId,
         foodId: foodId,
         foodName: foodName,
         rating: rating,

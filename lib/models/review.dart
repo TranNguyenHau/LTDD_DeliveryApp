@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class Review {
   final String id;
   final String userId;
+  final String orderId;
   final String foodId;
   final String foodName;
   final int rating; // 1–5
@@ -18,6 +19,7 @@ class Review {
   const Review({
     required this.id,
     required this.userId,
+    required this.orderId,
     required this.foodId,
     required this.foodName,
     required this.rating,
@@ -32,6 +34,7 @@ class Review {
     return {
       'id': id,
       'userId': userId,
+      'orderId': orderId,
       'foodId': foodId,
       'foodName': foodName,
       'rating': rating,
@@ -47,6 +50,7 @@ class Review {
     return Review(
       id: map['id'] as String? ?? '',
       userId: map['userId'] as String? ?? '',
+      orderId: map['orderId'] as String? ?? '',
       foodId: map['foodId'] as String? ?? '',
       foodName: map['foodName'] as String? ?? '',
       rating: (map['rating'] as num?)?.toInt() ?? 5,

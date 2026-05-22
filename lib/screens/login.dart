@@ -9,6 +9,8 @@ import 'package:food_app/services/auth_service.dart';
 import 'package:food_app/providers/profile_provider.dart';
 import 'package:food_app/providers/order_provider.dart';
 import 'package:food_app/providers/review_provider.dart';
+import 'package:food_app/screens/forgot_password_screen.dart';
+import 'package:food_app/screens/verify_email_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -77,9 +79,10 @@ class _LoginScreenState extends State<LoginScreen>
       );
 
       if (!mounted) return;
-      setState(() => _isLoading = false);
 
+      // 1. Admin — bỏ qua xác thực email
       if (user.isAdmin) {
+        setState(() => _isLoading = false);
         await context.read<ProfileProvider>().clear();
         await context.read<OrderProvider>().clear();
         await context.read<ReviewProvider>().clear();
@@ -88,22 +91,45 @@ class _LoginScreenState extends State<LoginScreen>
           context,
           MaterialPageRoute(builder: (_) => const AdminScreen()),
         );
-      } else {
-        // Tải hồ sơ khách hàng realtime
-        await Future.wait([
-          context.read<ProfileProvider>().bindUser(
-                user.id,
-                email: user.email,
-                fullName: user.username,
-              ),
-          context.read<OrderProvider>().bindUser(user.id),
-        ]);
+        return;
+      }
+
+      // 2. User thường — kiểm tra email đã xác thực
+      await FirebaseAuth.instance.currentUser?.reload();
+      final isVerified =
+          FirebaseAuth.instance.currentUser?.emailVerified ?? false;
+
+      if (!isVerified) {
+        await FirebaseAuth.instance.currentUser?.sendEmailVerification();
         if (!mounted) return;
+        setState(() => _isLoading = false);
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const MainShell()),
+          MaterialPageRoute(
+            builder: (_) => VerifyEmailScreen(
+              email: email,
+              loginAccount: user,
+            ),
+          ),
         );
+        return;
       }
+
+      // 3. Đã xác thực — vào app bình thường
+      setState(() => _isLoading = false);
+      await Future.wait([
+        context.read<ProfileProvider>().bindUser(
+              user.id,
+              email: user.email,
+              fullName: user.username,
+            ),
+        context.read<OrderProvider>().bindUser(user.id),
+      ]);
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const MainShell()),
+      );
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
@@ -259,7 +285,38 @@ Widget build(BuildContext context) {
                       },
                     ),
 
-                    const SizedBox(height: 30),
+                    const SizedBox(height: 8),
+
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _isLoading
+                            ? null
+                            : () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        const ForgotPasswordScreen(),
+                                  ),
+                                ),
+                        style: TextButton.styleFrom(
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 0),
+                        ),
+                        child: const Text(
+                          'Quên mật khẩu?',
+                          style: TextStyle(
+                            color: Colors.orange,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 22),
 
                     SizedBox(
                       width: double.infinity,
