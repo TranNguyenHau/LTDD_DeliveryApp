@@ -10,8 +10,13 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../models/user_profile.dart';
+import '../providers/cart_provider.dart';
+import '../providers/coupon_provider.dart';
+import '../providers/order_provider.dart';
 import '../providers/profile_provider.dart';
 import '../utils/validators.dart';
+import 'coupon_wallet_screen.dart';
+import 'login.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -126,9 +131,22 @@ class _ProfileScreenState extends State<ProfileScreen>
       builder: (_) => _LogoutBottomSheet(),
     );
     if (confirmed == true && mounted) {
+      // 1. Clear all provider state first
+      context.read<CartProvider>().clear();
+      context.read<CouponProvider>().clear();
+      await context.read<OrderProvider>().clear();
       await context.read<ProfileProvider>().clear();
+      
+      // 2. Sign out from Firebase
       await FirebaseAuth.instance.signOut();
-      // Navigator sẽ tự redirect về Login do AuthStateChanges
+      
+      // 3. Navigate to login, remove ALL routes
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (route) => false,
+        );
+      }
     }
   }
 
@@ -613,6 +631,16 @@ class _ProfileScreenState extends State<ProfileScreen>
             ),
             child: Column(
               children: [
+                _menuRow(
+                  icon: Icons.confirmation_number_outlined,
+                  label: 'Kho voucher',
+                  iconColor: _orange,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const CouponWalletScreen()),
+                  ),
+                ),
+                _divider(),
                 _menuRow(
                   icon: Icons.notifications_outlined,
                   label: 'Thông báo',

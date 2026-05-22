@@ -1,16 +1,17 @@
 // lib/screens/checkout_screen.dart
 // Màn hình xác nhận đặt hàng
-// - Tự động lấy địa chỉ từ profile nếu có
-// - Cho phép chọn địa chỉ khác (đặt hộ bạn, địa chỉ tạm)
-// - Cho phép lưu địa chỉ mới vào profile
 // Style tham khảo GrabFood / ShopeeFood
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/cart_item.dart';
+import '../models/coupon.dart';
 import '../providers/cart_provider.dart';
+import '../providers/coupon_provider.dart';
 import '../providers/order_provider.dart';
 import '../providers/profile_provider.dart';
+import '../widgets/coupon_card.dart';
 import 'order_success_screen.dart';
 
 // ─── Address option types ─────────────────────────────────
@@ -56,6 +57,12 @@ class _CheckoutScreenState extends State<CheckoutScreen>
         vsync: this, duration: const Duration(milliseconds: 400));
     _fadeAnim = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut);
     _animCtrl.forward();
+
+    // Lấy danh sách mã giảm giá gợi ý ngay khi vào màn hình
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final cart = context.read<CartProvider>();
+      context.read<CouponProvider>().fetchAvailableCoupons(cart.totalAmount);
+    });
   }
 
   @override
@@ -66,7 +73,7 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   }
 
   /// Địa chỉ sẽ dùng để đặt hàng
-  String get _deliveryAddress {
+  String _getDeliveryAddress(BuildContext context) {
     if (_addressType == _AddressType.profile) {
       final addr = context.read<ProfileProvider>().profile?.address ?? '';
       return addr;
@@ -83,16 +90,23 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   }
 
   Future<void> _placeOrder(CartProvider cart, double total) async {
+    // Capture providers and ScaffoldMessenger before async gaps
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final profileProvider = context.read<ProfileProvider>();
+    final couponProvider = context.read<CouponProvider>();
+    final orderProvider = context.read<OrderProvider>();
+
     // Validate địa chỉ
-    final address = _deliveryAddress;
+    final address = _getDeliveryAddress(context);
     if (address.isEmpty) {
-      _showSnack('Vui lòng nhập địa chỉ giao hàng', isError: true);
+      _showSnackWithMessenger(messenger, 'Vui lòng nhập địa chỉ giao hàng', isError: true);
       return;
     }
 
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
-      _showSnack('Vui lòng đăng nhập để đặt hàng', isError: true);
+      _showSnackWithMessenger(messenger, 'Vui lòng đăng nhập để đặt hàng', isError: true);
       return;
     }
 
@@ -102,7 +116,6 @@ class _CheckoutScreenState extends State<CheckoutScreen>
     if (_addressType == _AddressType.custom &&
         _saveAddressToProfile &&
         address.isNotEmpty) {
-      final profileProvider = context.read<ProfileProvider>();
       final currentProfile = profileProvider.profile;
       if (currentProfile != null) {
         await profileProvider.updateProfile(
@@ -113,32 +126,37 @@ class _CheckoutScreenState extends State<CheckoutScreen>
       }
     }
 
-    final order = await context.read<OrderProvider>().placeOrder(
+    final appliedCoupon = couponProvider.appliedCoupon;
+    final discountAmount = couponProvider.calculateDiscount(cart.totalAmount);
+
+    final order = await orderProvider.placeOrder(
           userId: uid,
           items: cart.items.values.toList(),
           totalAmount: total,
           deliveryAddress: address,
+          couponCode: appliedCoupon?.code,
+          discountAmount: discountAmount,
         );
 
     if (!mounted) return;
     setState(() => _isPlacing = false);
 
     if (order == null) {
-      final err = context.read<OrderProvider>().errorMessage;
-      _showSnack(err ?? 'Đặt hàng thất bại', isError: true);
+      final err = orderProvider.errorMessage;
+      _showSnackWithMessenger(messenger, err ?? 'Đặt hàng thất bại', isError: true);
       return;
     }
 
-    context.read<CartProvider>().clear();
-    Navigator.pushAndRemoveUntil(
-      context,
+    couponProvider.clear();
+    cart.clear();
+    navigator.pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => OrderSuccessScreen(order: order)),
       (route) => route.isFirst,
     );
   }
 
-  void _showSnack(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
+  void _showSnackWithMessenger(ScaffoldMessengerState messenger, String message, {bool isError = false}) {
+    messenger.showSnackBar(
       SnackBar(
         content: Row(children: [
           Icon(
@@ -163,12 +181,14 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   @override
   Widget build(BuildContext context) {
     final cart = context.watch<CartProvider>();
+    final couponProvider = context.watch<CouponProvider>();
     final profileProvider = context.watch<ProfileProvider>();
     final profile = profileProvider.profile;
     final profileAddress = profile?.address ?? '';
     final double subtotal = cart.totalAmount;
+    final double discountAmount = couponProvider.calculateDiscount(subtotal);
     const double deliveryFee = 15000;
-    final double total = subtotal + deliveryFee;
+    final double total = (subtotal + deliveryFee - discountAmount).clamp(0.0, double.infinity);
 
     // Khởi tạo: nếu profile có địa chỉ → mặc định dùng profile
     // nếu không → mặc định sang custom
@@ -205,8 +225,12 @@ class _CheckoutScreenState extends State<CheckoutScreen>
               _buildPaymentSection(),
               const SizedBox(height: 12),
 
+              // ── 2.5 Mã giảm giá ────────────────────────────
+              _buildCouponSection(couponProvider, subtotal, cart.items.values.toList()),
+              const SizedBox(height: 12),
+
               // ── 3. Tóm tắt đơn hàng ───────────────────────
-              _buildOrderSummary(cart, subtotal, deliveryFee, total),
+              _buildOrderSummary(cart, subtotal, discountAmount, deliveryFee, total),
               const SizedBox(height: 24),
 
               // ── 4. Nút đặt hàng ───────────────────────────
@@ -244,7 +268,7 @@ class _CheckoutScreenState extends State<CheckoutScreen>
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: _orange.withOpacity(0.1),
+                  color: _orange.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(Icons.location_on, size: 18, color: _orange),
@@ -430,7 +454,7 @@ class _CheckoutScreenState extends State<CheckoutScreen>
               padding:
                   const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: const Color(0xFF22C55E).withOpacity(0.1),
+                color: const Color(0xFF22C55E).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: const Row(
@@ -496,7 +520,7 @@ class _CheckoutScreenState extends State<CheckoutScreen>
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF5C6BC0).withOpacity(0.1),
+                  color: const Color(0xFF5C6BC0).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(Icons.payment_outlined,
@@ -545,7 +569,7 @@ class _CheckoutScreenState extends State<CheckoutScreen>
               width: 38,
               height: 38,
               decoration: BoxDecoration(
-                color: iconColor.withOpacity(0.12),
+                color: iconColor.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, size: 20, color: iconColor),
@@ -588,9 +612,112 @@ class _CheckoutScreenState extends State<CheckoutScreen>
     );
   }
 
+  // ─── Coupon section ───────────────────────────────────────
+  Widget _buildCouponSection(CouponProvider couponProvider, double subtotal, List<CartItem> cartItems) {
+    final applied = couponProvider.appliedCoupon;
+    final discount = couponProvider.calculateDiscount(subtotal);
+
+    return GestureDetector(
+      onTap: () => _openCouponSelection(subtotal, cartItems),
+      child: _card(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.confirmation_number_outlined,
+                      size: 18, color: Colors.blue),
+                ),
+                const SizedBox(width: 10),
+                const Text(
+                  'Mã giảm giá',
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: _textDark),
+                ),
+                const Spacer(),
+                if (applied == null)
+                  const Icon(Icons.chevron_right, size: 20, color: _textMuted),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (applied == null)
+              const Row(
+                children: [
+                  Text(
+                    'Chọn hoặc nhập mã giảm giá',
+                    style: TextStyle(color: _textMuted, fontSize: 13),
+                  ),
+                ],
+              )
+            else
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _green.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: _green.withValues(alpha: 0.3)),
+                    ),
+                    child: Text(
+                      applied.code,
+                      style: const TextStyle(
+                        color: _green,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    '-${_formatPrice(discount)}đ',
+                    style: const TextStyle(
+                      color: _green,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const Spacer(),
+                  const Text(
+                    'Thay đổi',
+                    style: TextStyle(
+                      color: _orange,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openCouponSelection(double subtotal, List<CartItem> cartItems) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => CouponSelectionSheet(
+        subtotal: subtotal,
+        cartItems: cartItems,
+      ),
+    );
+  }
+
   // ─── Order summary ────────────────────────────────────────
   Widget _buildOrderSummary(
-      CartProvider cart, double subtotal, double deliveryFee, double total) {
+      CartProvider cart, double subtotal, double discountAmount, double deliveryFee, double total) {
     return _card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -601,7 +728,7 @@ class _CheckoutScreenState extends State<CheckoutScreen>
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFF8F00).withOpacity(0.1),
+                  color: const Color(0xFFFF8F00).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(Icons.receipt_long_outlined,
@@ -671,6 +798,11 @@ class _CheckoutScreenState extends State<CheckoutScreen>
           _summaryRow(
               'Tạm tính', '${_formatPrice(subtotal)}đ', isTotal: false),
           const SizedBox(height: 6),
+          if (discountAmount > 0) ...[
+            _summaryRow(
+                'Giảm giá', '-${_formatPrice(discountAmount)}đ', isTotal: false, valueColor: _red),
+            const SizedBox(height: 6),
+          ],
           _summaryRow(
               'Phí giao hàng', '${_formatPrice(deliveryFee)}đ',
               isTotal: false),
@@ -685,7 +817,7 @@ class _CheckoutScreenState extends State<CheckoutScreen>
     );
   }
 
-  Widget _summaryRow(String label, String value, {required bool isTotal}) {
+  Widget _summaryRow(String label, String value, {required bool isTotal, Color? valueColor}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -701,7 +833,7 @@ class _CheckoutScreenState extends State<CheckoutScreen>
           value,
           style: TextStyle(
             fontSize: isTotal ? 16 : 13,
-            color: isTotal ? _orange : _textDark,
+            color: valueColor ?? (isTotal ? _orange : _textDark),
             fontWeight: isTotal ? FontWeight.w800 : FontWeight.w500,
           ),
         ),
@@ -717,7 +849,7 @@ class _CheckoutScreenState extends State<CheckoutScreen>
         onPressed: _isPlacing ? null : () => _placeOrder(cart, total),
         style: ElevatedButton.styleFrom(
           backgroundColor: _orange,
-          disabledBackgroundColor: _orange.withOpacity(0.5),
+          disabledBackgroundColor: _orange.withValues(alpha: 0.5),
           padding: const EdgeInsets.symmetric(vertical: 16),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -760,13 +892,223 @@ class _CheckoutScreenState extends State<CheckoutScreen>
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
       ),
       child: child,
+    );
+  }
+}
+
+// ─── Coupon Selection Bottom Sheet ────────────────────────
+class CouponSelectionSheet extends StatefulWidget {
+  final double subtotal;
+  final List<CartItem> cartItems;
+
+  const CouponSelectionSheet({
+    super.key,
+    required this.subtotal,
+    required this.cartItems,
+  });
+
+  @override
+  State<CouponSelectionSheet> createState() => _CouponSelectionSheetState();
+}
+
+class _CouponSelectionSheetState extends State<CouponSelectionSheet> {
+  final TextEditingController _inputCtrl = TextEditingController();
+  String? _errorMessage;
+  bool _isValidating = false;
+
+  @override
+  void dispose() {
+    _inputCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _applyManualCode(CouponProvider provider) async {
+    final code = _inputCtrl.text.trim();
+    if (code.isEmpty) return;
+
+    setState(() {
+      _isValidating = true;
+      _errorMessage = null;
+    });
+
+    final result = await provider.validateCoupon(code, widget.subtotal, widget.cartItems);
+    
+    if (mounted) {
+      setState(() => _isValidating = false);
+      if (result.isSuccess) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Đã áp dụng mã giảm giá')),
+        );
+      } else {
+        setState(() => _errorMessage = result.errorMessage);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<CouponProvider>();
+    final suggested = provider.suggestedCoupon;
+    final others = provider.availableCoupons
+        .where((c) => c.code != suggested?.code)
+        .toList();
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      decoration: const BoxDecoration(
+        color: Color(0xFFF5F5F5),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(top: 8, bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Chọn Mã giảm giá',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Section: Nhập mã khác
+                  const Text('Nhập mã voucher',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _inputCtrl,
+                          style: const TextStyle(fontSize: 14),
+                          decoration: InputDecoration(
+                            hintText: 'Nhập mã giảm giá',
+                            filled: true,
+                            fillColor: Colors.white,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(color: Colors.grey[300]!),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(color: Colors.grey[300]!),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      ElevatedButton(
+                        onPressed: _isValidating ? null : () => _applyManualCode(provider),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF6B00),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          elevation: 0,
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          fixedSize: const Size.fromHeight(44),
+                        ),
+                        child: _isValidating
+                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : const Text('Áp dụng', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                  if (_errorMessage != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8, left: 4),
+                      child: Text(_errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                    ),
+
+                  const SizedBox(height: 24),
+
+                  // Section: Voucher gợi ý
+                  if (suggested != null) ...[
+                    const Text('Voucher gợi ý',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    const SizedBox(height: 8),
+                    CouponCard(
+                      coupon: suggested,
+                      onApply: () {
+                        provider.applyCoupon(suggested);
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Đã áp dụng mã giảm giá')),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+
+                  // Section: Voucher khác
+                  if (others.isNotEmpty) ...[
+                    const Text('Voucher khác có thể dùng',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    const SizedBox(height: 8),
+                    ...others.map((c) => CouponCard(
+                      coupon: c,
+                      onApply: () {
+                        provider.applyCoupon(c);
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Đã áp dụng mã giảm giá')),
+                        );
+                      },
+                    )),
+                  ],
+
+                  if (suggested == null && others.isEmpty)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 40),
+                        child: Text('Không có mã giảm giá nào phù hợp', style: TextStyle(color: Colors.grey)),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

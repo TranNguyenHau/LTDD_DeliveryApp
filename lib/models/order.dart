@@ -1,16 +1,21 @@
 // lib/models/order.dart
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'cart_item.dart';
 
-enum OrderStatus { pending, confirmed, preparing, delivering, delivered }
+enum OrderStatus { pending, confirmed, preparing, delivering, completed, cancelled }
 
 class Order {
   final String id;
   final String userId;
   final List<CartItem> items;
   final double totalAmount;
+  final String? couponCode;
+  final double discountAmount;
   final DateTime createdAt;
   final String deliveryAddress;
+  final DateTime? cancelledAt;
+  final String? cancelReason;
   OrderStatus status;
 
   Order({
@@ -18,9 +23,13 @@ class Order {
     required this.userId,
     required this.items,
     required this.totalAmount,
+    this.couponCode,
+    this.discountAmount = 0.0,
     required this.deliveryAddress,
     this.status = OrderStatus.pending,
     DateTime? createdAt,
+    this.cancelledAt,
+    this.cancelReason,
   }) : createdAt = createdAt ?? DateTime.now();
 
   String get statusLabel {
@@ -33,8 +42,10 @@ class Order {
         return 'Đang chuẩn bị';
       case OrderStatus.delivering:
         return 'Đang giao';
-      case OrderStatus.delivered:
-        return 'Đã giao';
+      case OrderStatus.completed:
+        return 'Hoàn thành';
+      case OrderStatus.cancelled:
+        return 'Đã hủy';
     }
   }
 
@@ -47,9 +58,13 @@ class Order {
       'userId': userId,
       'items': items.map((i) => i.toMap()).toList(),
       'totalAmount': totalAmount,
+      'couponCode': couponCode,
+      'discountAmount': discountAmount,
       'deliveryAddress': deliveryAddress,
       'status': statusValue,
-      'createdAt': createdAt.toIso8601String(),
+      'createdAt': Timestamp.fromDate(createdAt),
+      'cancelledAt': cancelledAt != null ? Timestamp.fromDate(cancelledAt!) : null,
+      'cancelReason': cancelReason,
     };
   }
 
@@ -62,11 +77,13 @@ class Order {
               .toList() ??
           [],
       totalAmount: (map['totalAmount'] as num?)?.toDouble() ?? 0,
+      couponCode: map['couponCode'] as String?,
+      discountAmount: (map['discountAmount'] as num?)?.toDouble() ?? 0.0,
       deliveryAddress: map['deliveryAddress'] as String? ?? '',
       status: _parseStatus(map['status'] as String?),
-      createdAt: map['createdAt'] != null
-          ? DateTime.tryParse(map['createdAt'] as String) ?? DateTime.now()
-          : DateTime.now(),
+      createdAt: _parseDateTime(map['createdAt']) ?? DateTime.now(),
+      cancelledAt: _parseDateTime(map['cancelledAt']),
+      cancelReason: map['cancelReason'] as String?,
     );
   }
 
@@ -75,5 +92,12 @@ class Order {
       (s) => s.name == value,
       orElse: () => OrderStatus.pending,
     );
+  }
+
+  static DateTime? _parseDateTime(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is String) return DateTime.tryParse(value);
+    return null;
   }
 }

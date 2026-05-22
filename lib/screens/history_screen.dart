@@ -115,7 +115,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                   context,
                                   MaterialPageRoute(
                                     builder: (_) =>
-                                        OrderDetailScreen(order: order),
+                                        OrderDetailScreen(orderId: order.id),
                                   ),
                                 ),
                               );
