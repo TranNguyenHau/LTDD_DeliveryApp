@@ -60,8 +60,12 @@ class OrderSuccessScreen extends StatelessWidget {
                     _infoRow('Mã đơn hàng', order.id),
                     const Divider(height: 20),
                     _infoRow('Trạng thái', order.statusLabel),
+                    if (order.discountAmount > 0) ...[
+                      const Divider(height: 20),
+                      _infoRow('Giảm giá', '-${_formatPrice(order.discountAmount)}đ', valueColor: Colors.red),
+                    ],
                     const Divider(height: 20),
-                    _infoRow('Tổng tiền', '${_formatPrice(order.totalAmount)}đ'),
+                    _infoRow('Tổng tiền', '${_formatPrice(order.totalAmount)}đ', valueStyle: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFFFF6B00))),
                     const Divider(height: 20),
                     _infoRow('Địa chỉ', order.deliveryAddress),
                     const Divider(height: 20),
@@ -92,15 +96,16 @@ class OrderSuccessScreen extends StatelessWidget {
     );
   }
 
-  Widget _infoRow(String label, String value) {
+  Widget _infoRow(String label, String value, {Color? valueColor, TextStyle? valueStyle}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+        const SizedBox(width: 16),
         Flexible(
           child: Text(
             value,
-            style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+            style: valueStyle ?? TextStyle(fontWeight: FontWeight.w500, fontSize: 13, color: valueColor),
             textAlign: TextAlign.right,
           ),
         ),
