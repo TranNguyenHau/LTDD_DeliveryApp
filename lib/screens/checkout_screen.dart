@@ -14,6 +14,7 @@ import '../providers/profile_provider.dart';
 import '../widgets/coupon_card.dart';
 import '../models/user_profile.dart';
 import 'order_success_screen.dart';
+import 'map_picker_screen.dart';
 
 // ─── Address option types ─────────────────────────────────
 enum _AddressType {
@@ -43,6 +44,8 @@ class _CheckoutScreenState extends State<CheckoutScreen>
   // ─── State ───────────────────────────────────────────────
   _AddressType _addressType = _AddressType.profile;
   final _customAddressCtrl = TextEditingController();
+  double? _lat;
+  double? _lng;
   bool _saveAddressToProfile = false;
   int _paymentMethod = 0; // 0: Cash, 1: E-wallet
   bool _isPlacing = false;
@@ -148,6 +151,8 @@ class _CheckoutScreenState extends State<CheckoutScreen>
           deliveryAddress: address,
           couponCode: appliedCoupon?.code,
           discountAmount: discountAmount,
+          lat: _addressType == _AddressType.custom ? _lat : null,
+          lng: _addressType == _AddressType.custom ? _lng : null,
         );
 
     if (!mounted) return;
@@ -392,42 +397,57 @@ class _CheckoutScreenState extends State<CheckoutScreen>
                     children: [
                       const SizedBox(height: 12),
                       // Text field
-                      TextField(
-                        controller: _customAddressCtrl,
-                        onChanged: (_) => setState(() {}),
-                        maxLines: 2,
-                        style: const TextStyle(
-                            fontSize: 14,
-                            color: _textDark,
-                            fontWeight: FontWeight.w500),
-                        decoration: InputDecoration(
-                          hintText:
-                              'VD: 123 Nguyễn Huệ, Phường Bến Nghé, Q.1, TP.HCM',
-                          hintStyle: const TextStyle(
-                              color: _textMuted, fontSize: 13),
-                          prefixIcon: const Icon(
-                              Icons.edit_location_alt_outlined,
-                              size: 20,
-                              color: _textMuted),
-                          filled: true,
-                          fillColor: const Color(0xFFFFF8F3),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide:
-                                const BorderSide(color: _border),
+                      InkWell(
+                        onTap: () async {
+                          final result = await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => MapPickerScreen(initialLat: _lat, initialLng: _lng),
+                            ),
+                          );
+                          if (result is MapPickerResult) {
+                            setState(() {
+                              _customAddressCtrl.text = result.address;
+                              _lat = result.lat;
+                              _lng = result.lng;
+                            });
+                          }
+                        },
+                        child: AbsorbPointer(
+                          child: TextField(
+                            controller: _customAddressCtrl,
+                            maxLines: 2,
+                            style: const TextStyle(
+                                fontSize: 14,
+                                color: _textDark,
+                                fontWeight: FontWeight.w500),
+                            decoration: InputDecoration(
+                              hintText: 'Chạm để chọn địa chỉ trên bản đồ',
+                              hintStyle: const TextStyle(
+                                  color: _textMuted, fontSize: 13),
+                              prefixIcon: const Icon(
+                                  Icons.map_outlined,
+                                  size: 20,
+                                  color: _orange),
+                              filled: true,
+                              fillColor: const Color(0xFFFFF8F3),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide:
+                                    const BorderSide(color: _border),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(
+                                    color: _orange, width: 1.5),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 14),
+                            ),
                           ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide:
-                                const BorderSide(color: _border),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(
-                                color: _orange, width: 1.5),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 14),
                         ),
                       ),
 

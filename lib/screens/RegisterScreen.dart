@@ -126,16 +126,21 @@ class _RegisterScreenState extends State<RegisterScreen>
                 _registeredUserId!,
                 email: _emailCtrl.text.trim(),
                 fullName: _fullNameCtrl.text.trim(),
+                phone: _phoneCtrl.text.trim(),
               ),
           context.read<OrderProvider>().bindUser(_registeredUserId!),
         ]);
 
-        // 2. Cập nhật Firestore profile với data đầy đủ
-        await context.read<ProfileProvider>().updateProfile(
-              fullName: _fullNameCtrl.text.trim(),
-              phone: _phoneCtrl.text.trim(),
-              address: '',
-            );
+        // 2. Cập nhật Firestore profile với data đầy đủ (gồm phone)
+        final profileError =
+            await context.read<ProfileProvider>().updateProfile(
+                  fullName: _fullNameCtrl.text.trim(),
+                  phone: _phoneCtrl.text.trim(),
+                  address: '',
+                );
+        if (profileError != null) {
+          throw Exception(profileError);
+        }
       }
 
       if (!mounted) return;

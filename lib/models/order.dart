@@ -18,6 +18,10 @@ class Order {
   final String? cancelReason;
   OrderStatus status;
 
+  // New fields for address picker
+  final double? lat;
+  final double? lng;
+
   Order({
     required this.id,
     required this.userId,
@@ -30,6 +34,8 @@ class Order {
     DateTime? createdAt,
     this.cancelledAt,
     this.cancelReason,
+    this.lat,
+    this.lng,
   }) : createdAt = createdAt ?? DateTime.now();
 
   String get statusLabel {
@@ -65,6 +71,8 @@ class Order {
       'createdAt': Timestamp.fromDate(createdAt),
       'cancelledAt': cancelledAt != null ? Timestamp.fromDate(cancelledAt!) : null,
       'cancelReason': cancelReason,
+      'lat': lat,
+      'lng': lng,
     };
   }
 
@@ -84,6 +92,8 @@ class Order {
       createdAt: _parseDateTime(map['createdAt']) ?? DateTime.now(),
       cancelledAt: _parseDateTime(map['cancelledAt']),
       cancelReason: map['cancelReason'] as String?,
+      lat: (map['lat'] as num?)?.toDouble(),
+      lng: (map['lng'] as num?)?.toDouble(),
     );
   }
 

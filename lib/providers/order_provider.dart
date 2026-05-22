@@ -118,6 +118,8 @@ class OrderProvider with ChangeNotifier {
     required String deliveryAddress,
     String? couponCode,
     double? discountAmount,
+    double? lat,
+    double? lng,
   }) async {
     _isPlacing = true;
     _errorMessage = null;
@@ -143,6 +145,8 @@ class OrderProvider with ChangeNotifier {
         deliveryAddress: deliveryAddress,
         couponCode: couponCode,
         discountAmount: discountAmount ?? 0.0,
+        lat: lat,
+        lng: lng,
       );
 
       await _db.runTransaction((transaction) async {

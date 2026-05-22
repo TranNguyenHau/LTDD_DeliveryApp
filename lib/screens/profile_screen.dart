@@ -7,8 +7,10 @@ import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'map_picker_screen.dart';
 import '../models/user_profile.dart';
 import '../providers/cart_provider.dart';
 import '../providers/coupon_provider.dart';
@@ -104,6 +106,50 @@ class _ProfileScreenState extends State<ProfileScreen>
       error ?? 'Cập nhật ảnh đại diện thành công!',
       isError: error != null,
     );
+  }
+
+  /// Mở bản đồ để chọn địa chỉ bằng pin
+  Future<void> _openMapPicker() async {
+    final result = await Navigator.push<MapPickerResult>(
+      context,
+      MaterialPageRoute(builder: (_) => const MapPickerScreen()),
+    );
+    if (result != null && mounted) {
+      setState(() => _addressCtrl.text = result.address);
+    }
+  }
+
+  /// Geocode địa chỉ đã gõ rồi mở bản đồ để xác nhận
+  Future<void> _validateAddressOnMap() async {
+    final address = _addressCtrl.text.trim();
+    if (address.isEmpty) {
+      _showSnack('Vui lòng nhập địa chỉ trước', isError: true);
+      return;
+    }
+    try {
+      final locations = await locationFromAddress(address);
+      if (locations.isEmpty) {
+        _showSnack('Không tìm thấy địa chỉ này trên bản đồ', isError: true);
+        return;
+      }
+      final loc = locations.first;
+      final result = await Navigator.push<MapPickerResult>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => MapPickerScreen(
+            initialLat: loc.latitude,
+            initialLng: loc.longitude,
+          ),
+        ),
+      );
+      if (result != null && mounted) {
+        setState(() => _addressCtrl.text = result.address);
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSnack('Không tìm thấy địa chỉ này trên bản đồ', isError: true);
+      }
+    }
   }
 
   Future<void> _saveProfile() async {
@@ -357,13 +403,9 @@ class _ProfileScreenState extends State<ProfileScreen>
           ]),
           const SizedBox(height: 12),
           _infoCard(children: [
-            _infoRow(
-              icon: Icons.location_on_outlined,
-              label: 'Địa chỉ giao hàng',
-              value: profile.address.isNotEmpty
-                  ? profile.address
-                  : 'Chưa có địa chỉ — Thêm để đặt hàng nhanh hơn',
-              isEmpty: profile.address.isEmpty,
+            InkWell(
+              onTap: _toggleEdit,
+              child: _buildAddressViewRow(profile),
             ),
           ]),
         ],
@@ -431,6 +473,173 @@ class _ProfileScreenState extends State<ProfileScreen>
     return const Divider(height: 1, indent: 50, endIndent: 16, color: _border);
   }
 
+  /// View mode — hàng địa chỉ có badge bản đồ, tap để vào edit
+  Widget _buildAddressViewRow(UserProfile profile) {
+    final isEmpty = profile.address.isEmpty;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.location_on_outlined, size: 20, color: _orange),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text(
+                      'Địa chỉ giao hàng',
+                      style: TextStyle(fontSize: 11, color: _textMuted),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: _orange.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.map_outlined, size: 11, color: _orange),
+                          SizedBox(width: 3),
+                          Text(
+                            'Chọn trên bản đồ',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: _orange,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  isEmpty
+                      ? 'Chưa có địa chỉ — Thêm để đặt hàng nhanh hơn'
+                      : profile.address,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: isEmpty ? _textMuted : _textDark,
+                    fontStyle: isEmpty ? FontStyle.italic : FontStyle.normal,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right, size: 18, color: Color(0xFFDDDDDD)),
+        ],
+      ),
+    );
+  }
+
+  /// Edit mode — địa chỉ + nút bản đồ
+  Widget _buildAddressEditField() {
+    const teal = Color(0xFF26A69A);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Địa chỉ giao hàng',
+          style: TextStyle(
+              fontSize: 12, fontWeight: FontWeight.w600, color: _textMuted),
+        ),
+        const SizedBox(height: 6),
+        TextFormField(
+          controller: _addressCtrl,
+          validator: AppValidators.address,
+          keyboardType: TextInputType.streetAddress,
+          maxLines: 2,
+          style: const TextStyle(
+            fontSize: 14,
+            color: _textDark,
+            fontWeight: FontWeight.w500,
+          ),
+          decoration: InputDecoration(
+            hintText: 'Nhập Địa chỉ giao hàng',
+            hintStyle: const TextStyle(color: _textMuted, fontSize: 14),
+            prefixIcon:
+                const Icon(Icons.location_on_outlined, size: 18, color: _textMuted),
+            filled: true,
+            fillColor: const Color(0xFFFFF8F3),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _border),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _border),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _orange, width: 1.5),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _red),
+            ),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _openMapPicker,
+                icon: const Icon(Icons.map_outlined, size: 16),
+                label: const Text(
+                  'Chọn trên bản đồ',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _orange,
+                  side: const BorderSide(color: _orange),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _validateAddressOnMap,
+                icon: const Icon(Icons.location_searching, size: 16),
+                label: const Text(
+                  'Kiểm tra địa chỉ',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: teal,
+                  side: const BorderSide(color: teal),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          '💡 Gõ địa chỉ rồi nhấn Kiểm tra để xem trên bản đồ, hoặc nhấn Chọn trên bản đồ để pin trực tiếp.',
+          style: TextStyle(fontSize: 11, color: _textMuted, height: 1.4),
+        ),
+      ],
+    );
+  }
+
   // ─── Edit mode ────────────────────────────────────────────
   Widget _buildEditForm(UserProfile profile, ProfileProvider provider) {
     return Container(
@@ -492,13 +701,7 @@ class _ProfileScreenState extends State<ProfileScreen>
             ),
             const SizedBox(height: 14),
 
-            _editField(
-              controller: _addressCtrl,
-              label: 'Địa chỉ giao hàng',
-              icon: Icons.location_on_outlined,
-              maxLines: 2,
-              validator: AppValidators.address,
-            ),
+            _buildAddressEditField(),
             const SizedBox(height: 24),
 
             // Save button

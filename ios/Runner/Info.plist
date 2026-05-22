@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Chúng tôi cần vị trí của bạn để giao hàng chính xác nhất.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Chúng tôi cần vị trí của bạn để theo dõi đơn hàng.</string>
 </dict>
 </plist>
